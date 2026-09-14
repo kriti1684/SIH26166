@@ -1,0 +1,90 @@
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/lib/python3.13/logging/__init__.py", line 1151, in emit
+    msg = self.format(record)
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/lib/python3.13/logging/__init__.py", line 999, in format
+    return fmt.format(record)
+           ~~~~~~~~~~^^^^^^^^
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/lib/python3.13/logging/__init__.py", line 712, in format
+    record.message = record.getMessage()
+                     ~~~~~~~~~~~~~~~~~^^
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/lib/python3.13/logging/__init__.py", line 400, in getMessage
+    msg = msg % self.args
+          ~~~~^~~~~~~~~~~
+TypeError: not all arguments converted during string formatting
+Call stack:
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/downloadIsisData", line 293, in <module>
+    log.debug("args: ", args)
+Message: 'args: '
+Arguments: (Namespace(mission='chandrayaan2', dest=' --include=kernels/ck/*.bc', verbose=2, num_transfers=10, config='/home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/../etc/isis/rclone.conf', filter=None, include=None, exclude=['*'], no_kernels=False, command='copy'),)
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/lib/python3.13/logging/__init__.py", line 1151, in emit
+    msg = self.format(record)
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/lib/python3.13/logging/__init__.py", line 999, in format
+    return fmt.format(record)
+           ~~~~~~~~~~^^^^^^^^
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/lib/python3.13/logging/__init__.py", line 712, in format
+    record.message = record.getMessage()
+                     ~~~~~~~~~~~~~~~~~^^
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/lib/python3.13/logging/__init__.py", line 400, in getMessage
+    msg = msg % self.args
+          ~~~~^~~~~~~~~~~
+TypeError: not all arguments converted during string formatting
+Call stack:
+  File "/home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/downloadIsisData", line 294, in <module>
+    log.debug("Additional Args:", *kwargs)
+Message: 'Additional Args:'
+Arguments: ('--dry-run',)
+2026-09-12 13:48:48 INFO     ---Script starting---
+2026-09-12 13:48:48 DEBUG    Using config: /home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/../etc/isis/rclone.conf
+2026-09-12 13:48:48 DEBUG    rclone() : using config file /home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/../etc/isis/rclone.conf
+2026-09-12 13:48:48 DEBUG    Invoking : rclone listremotes --config=/home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/../etc/isis/rclone.conf
+2026-09-12 13:48:48 DEBUG    Invoking : rclone listremotes --config=/home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/../etc/isis/rclone.conf
+2026-09-12 13:48:49 DEBUG    Remote Sources: ['asc_s3:', 'esa:', 'naif:', 'jaxa:', 'sbn:', 'base:', 'legacybase:', 'isistestdata:', 'control:', 'apollo15:', 'apollo16:', 'apollo17:', 'lro:', 'tgo_naifKernels:', 'tgo_usgs:', 'tgo:', 'dawn_naifKernels:', 'dawn_usgs:', 'dawn_pck:', 'dawn_kernel_combine:', 'dawn:', 'cassini_naifKernels:', 'cassini_usgs:', 'cassini:', 'hayabusa2_naifKernels:', 'hayabusa2_usgs:', 'hayabusa2:', 'galileo_naifKernels:', 'galileo_usgs:', 'galileo:', 'juno_naifKernels:', 'juno_usgs:', 'juno:', 'lo:', 'odyssey_naifKernels:', 'odyssey_usgs:', 'odyssey:', 'mro_naifKernels:', 'mro_usgs:', 'mro:', 'mex_naifKernels:', 'mex_usgs:', 'mex:', 'hayabusa_naifKernels:', 'hayabusa_usgs:', 'hayabusa:', 'chandrayaan1_naifKernels:', 'chandrayaan1_usgs:', 'chandrayaan1:', 'chandrayaan2:', 'clementine1_naifKernels:', 'clementine1_usgs:', 'clementine1:', 'kaguya_naifKernels:', 'kaguya_usgs:', 'kaguya:', 'kplo:', 'mariner10_naifKernels:', 'mariner10_usgs:', 'mariner10:', 'mer:', 'messenger_naifKernels:', 'messenger_usgs:', 'messenger:', 'mgs_naifKernels:', 'mgs_usgs:', 'mgs:', 'near_naifKernels:', 'near_usgs:', 'near:', 'newhorizons_naifKernels:', 'newhorizons_usgs:', 'newhorizons:', 'osirisrex_naifKernels:', 'osirisrex_usgs:', 'osirisrex:', 'rolo:', 'rosetta_naifKernels:', 'rosetta_usgs:', 'rosetta:', 'smart1_naifKernels:', 'smart1_usgs:', 'smart1:', 'viking1_naifKernels:', 'viking1_usgs:', 'viking1:', 'viking2_naifKernels:', 'viking2_usgs:', 'viking2:', 'voyager1_naifKernels:', 'voyager1_usgs:', 'voyager1:', 'voyager2_naifKernels:', 'voyager2_usgs:', 'voyager2:', 'msl_usgs:', 'msl_naifKernels:', 'msl:', '']
+2026-09-12 13:48:49 DEBUG    Supported missions:
+ ['base', 'legacybase', 'isistestdata', 'control', 'apollo15', 'apollo16', 'apollo17', 'lro', 'tgo', 'dawn', 'cassini', 'hayabusa2', 'galileo', 'juno', 'lo', 'odyssey', 'mro', 'mex', 'hayabusa', 'chandrayaan1', 'chandrayaan2', 'clementine1', 'kaguya', 'kplo', 'mariner10', 'mer', 'messenger', 'mgs', 'near', 'newhorizons', 'osirisrex', 'rolo', 'rosetta', 'smart1', 'viking1', 'viking2', 'voyager1', 'voyager2', 'msl']
+2026-09-12 13:48:49 DEBUG    Creating RClone command for chandrayaan2
+2026-09-12 13:48:49 DEBUG    Args created: ['chandrayaan2:', ' --include=kernels/ck/*.bc/chandrayaan2', '--progress', '--checkers=10', '--transfers=10', '--track-renames', '--log-level=DEBUG', '--filter=+ calibration/**', '--filter=- source/', '--filter=- /a_older_versions/', '--filter=- /former_versions/', '--filter=- corrupt_files/', '--filter=- zzarchive/', '--filter=- /original/', '--filter=- ck/prime_mission/', '--filter=- extended_mission/', '--filter=- /prime_mission/', '--filter=- ck/GEM/', '--filter=- ck/save/', '--filter=- spk/SAVE_SCS_2017-11-22/', '--filter=- spk/spk_psp_rec*', '--filter=- release*/', '--filter=- Archive/', '--filter=- ek/', '--filter=- *.lbl', '--filter=- *.txt', '--filter=- *.log', '--filter=- *.temp', '--filter=- *.history', '--filter=- misc/', '--filter=- document/', '--filter=- *.csv', '--filter=- toolkit/', '--filter=- kernels_ORG/', '--filter=- orbnum/**', '--filter=- old/**', '--filter=- SpecialProducts/**', '--filter=- *', '--dry-run']
+2026-09-12 13:48:49 DEBUG    rclone() : using config file /home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/../etc/isis/rclone.conf
+2026-09-12 13:48:49 DEBUG    Invoking : rclone copy --config=/home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/../etc/isis/rclone.conf chandrayaan2:  --include=kernels/ck/*.bc/chandrayaan2 --progress --checkers=10 --transfers=10 --track-renames --log-level=DEBUG --filter=+ calibration/** --filter=- source/ --filter=- /a_older_versions/ --filter=- /former_versions/ --filter=- corrupt_files/ --filter=- zzarchive/ --filter=- /original/ --filter=- ck/prime_mission/ --filter=- extended_mission/ --filter=- /prime_mission/ --filter=- ck/GEM/ --filter=- ck/save/ --filter=- spk/SAVE_SCS_2017-11-22/ --filter=- spk/spk_psp_rec* --filter=- release*/ --filter=- Archive/ --filter=- ek/ --filter=- *.lbl --filter=- *.txt --filter=- *.log --filter=- *.temp --filter=- *.history --filter=- misc/ --filter=- document/ --filter=- *.csv --filter=- toolkit/ --filter=- kernels_ORG/ --filter=- orbnum/** --filter=- old/** --filter=- SpecialProducts/** --filter=- * --dry-run
+2026-09-12 13:48:49 DEBUG    Invoking : rclone copy --config=/home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/../etc/isis/rclone.conf chandrayaan2:  --include=kernels/ck/*.bc/chandrayaan2 --progress --checkers=10 --transfers=10 --track-renames --log-level=DEBUG --filter=+ calibration/** --filter=- source/ --filter=- /a_older_versions/ --filter=- /former_versions/ --filter=- corrupt_files/ --filter=- zzarchive/ --filter=- /original/ --filter=- ck/prime_mission/ --filter=- extended_mission/ --filter=- /prime_mission/ --filter=- ck/GEM/ --filter=- ck/save/ --filter=- spk/SAVE_SCS_2017-11-22/ --filter=- spk/spk_psp_rec* --filter=- release*/ --filter=- Archive/ --filter=- ek/ --filter=- *.lbl --filter=- *.txt --filter=- *.log --filter=- *.temp --filter=- *.history --filter=- misc/ --filter=- document/ --filter=- *.csv --filter=- toolkit/ --filter=- kernels_ORG/ --filter=- orbnum/** --filter=- old/** --filter=- SpecialProducts/** --filter=- * --dry-run
+2026/09/12 13:48:49 DEBUG : rclone: Version "v1.75.0-DEV" starting with parameters ["rclone" "copy" "--config=/home/kritikriti/miniforge3/envs/ch2_isis_dev/bin/../etc/isis/rclone.conf" "chandrayaan2:" " --include=kernels/ck/*.bc/chandrayaan2" "--progress" "--checkers=10" "--transfers=10" "--track-renames" "--log-level=DEBUG" "--filter=+ calibration/**" "--filter=- source/" "--filter=- /a_older_versions/" "--filter=- /former_versions/" "--filter=- corrupt_files/" "--filter=- zzarchive/" "--filter=- /original/" "--filter=- ck/prime_mission/" "--filter=- extended_mission/" "--filter=- /prime_mission/" "--filter=- ck/GEM/" "--filter=- ck/save/" "--filter=- spk/SAVE_SCS_2017-11-22/" "--filter=- spk/spk_psp_rec*" "--filter=- release*/" "--filter=- Archive/" "--filter=- ek/" "--filter=- *.lbl" "--filter=- *.txt" "--filter=- *.log" "--filter=- *.temp" "--filter=- *.history" "--filter=- misc/" "--filter=- document/" "--filter=- *.csv" "--filter=- toolkit/" "--filter=- kernels_ORG/" "--filter=- orbnum/**" "--filter=- old/**" "--filter=- SpecialProducts/**" "--filter=- *" "--dry-run"]
+2026/09/12 13:48:49 DEBUG : Creating backend with remote "chandrayaan2:"
+2026/09/12 13:48:49 DEBUG : Using config file from "/home/kritikriti/miniforge3/envs/ch2_isis_dev/etc/isis/rclone.conf"
+2026/09/12 13:48:49 DEBUG : Creating backend with remote "asc_s3:asc-isisdata/usgs_data/chandrayaan2/"
+2026/09/12 13:48:49 DEBUG : Using anonymous credentials - did you mean to set env_auth=true?
+2026/09/12 13:48:49 DEBUG : fs cache: renaming cache item "asc_s3:asc-isisdata/usgs_data/chandrayaan2/" to be canonical "asc_s3:asc-isisdata/usgs_data/chandrayaan2"
+2026/09/12 13:48:49 DEBUG : fs cache: renaming cache item "chandrayaan2:" to be canonical "asc_s3:asc-isisdata/usgs_data/chandrayaan2"
+2026/09/12 13:48:49 DEBUG : Creating backend with remote " --include=kernels/ck/*.bc/chandrayaan2"
+
+2026/09/12 13:48:49 ERROR : Local file system at  --include=kernels/ck/*.bc/chandrayaan2: Ignoring --track-renames as it doesn't work with copy or move, only sync
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         0.0sTransferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         0.5sTransferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         1.0sTransferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         1.5s
+2026/09/12 13:48:51 DEBUG : kernels: Excluded
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Checks:                 0 / 0, -, Listed 1
+Elapsed time:         1.8s
+2026/09/12 13:48:51 DEBUG : Local file system at  --include=kernels/ck/*.bc/chandrayaan2: Waiting for checks to finish
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Checks:                 0 / 0, -, Listed 1
+Elapsed time:         1.8s
+2026/09/12 13:48:51 DEBUG : Local file system at  --include=kernels/ck/*.bc/chandrayaan2: Waiting for transfers to finish
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Checks:                 0 / 0, -, Listed 1
+Elapsed time:         1.8s
+2026/09/12 13:48:51 INFO  : There was nothing to transfer
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Checks:                 0 / 0, -, Listed 1
+Elapsed time:         1.8sTransferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Checks:                 0 / 0, -, Listed 1
+Elapsed time:         1.8s
+2026/09/12 13:48:51 NOTICE: 
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Checks:                 0 / 0, -, Listed 1
+Elapsed time:         1.8s
+
+2026/09/12 13:48:51 DEBUG : 5 go routines active

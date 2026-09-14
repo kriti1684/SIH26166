@@ -1,0 +1,118 @@
+# ==============================================================================
+# Git Ignore for Lunar Multi-Sensor Registration Pipeline (SIH)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Bytecode & Python Cache
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ------------------------------------------------------------------------------
+# 2. Virtual Environments & Editors
+# ------------------------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# ------------------------------------------------------------------------------
+# 3. Operating System Junk
+# ------------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ------------------------------------------------------------------------------
+# 4. Large Satellite & Planetary Rasters (CRITICAL: Do NOT push to Git)
+# ------------------------------------------------------------------------------
+*.tif
+*.tiff
+*.TIF
+*.TIFF
+*.cub
+*.CUB
+*.img
+*.IMG
+*.jp2
+*.h5
+*.hdf5
+*.raw
+*.aux.xml
+*.ovr
+*.msk
+
+# ------------------------------------------------------------------------------
+# 5. Pipeline Caches, Intermediate & Upload Dirs
+# ------------------------------------------------------------------------------
+normalized/
+preprocessed_cache/
+temp_db/
+temp_kernels/
+runs/
+uploads/
+**/uploads/
+" --include=kernels"/
+\ --include=kernels/
+
+# ------------------------------------------------------------------------------
+# 6. Runtime Logs, Temporary Output & Tile Dumps
+# ------------------------------------------------------------------------------
+*.log
+*.prt
+out.txt
+*.tmp
+*.temp
+**/tile_pngs/
+**/match_visualizations/
+
+# ------------------------------------------------------------------------------
+# 7. Planetary SPICE Binary Kernels & ISIS DBs
+# ------------------------------------------------------------------------------
+*.bsp
+*.bc
+*.db
+!kernels_0001_ck.db
+
+# ------------------------------------------------------------------------------
+# 8. Model Weights (.pth / .pt)
+# Note: GitHub blocks files > 100MB. SuperGlue weights are ~48MB each.
+# If your team prefers downloading weights separately, uncomment the line below:
+# *.pth
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# 9. Project Run Outputs (Keep folder structure, ignore bulky outputs)
+# ------------------------------------------------------------------------------
+projects/*/*_registered.tif
+projects/*/diagnostics/*.png
+!projects/**/.gitkeep

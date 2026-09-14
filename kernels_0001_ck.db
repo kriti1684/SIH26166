@@ -1,0 +1,49 @@
+Object = SpacecraftPointing
+  RunTime = 2026-09-04T16:46:41
+
+  Group = Dependencies
+    SpacecraftClockKernel = $chandrayaan2/kernels/sclk/ch2_sclk_v1.tsc
+    LeapsecondKernel      = $base/kernels/lsk/naif0012.tls
+  End_Group
+
+  Group = Selection
+    Time = ("2021 FEB 27 03:44:25.639478 TDB",
+            "2021 FEB 27 03:56:40.105225 TDB")
+    Time = ("2021 FEB 27 04:27:25.095443 TDB",
+            "2021 FEB 27 06:26:36.609098 TDB")
+    Time = ("2021 FEB 27 07:16:09.409746 TDB",
+            "2021 FEB 27 10:03:05.959486 TDB")
+    Time = ("2021 FEB 27 10:03:07.239622 TDB",
+            "2021 MAR 05 13:46:50.905650 TDB")
+    Time = ("2021 MAR 05 13:46:51.161614 TDB",
+            "2021 MAR 11 04:56:40.837153 TDB")
+    Time = ("2021 MAR 11 04:56:42.117041 TDB",
+            "2021 MAR 12 06:14:58.768498 TDB")
+    Time = ("2021 MAR 12 06:15:00.048386 TDB",
+            "2021 MAR 16 10:53:25.419196 TDB")
+    Time = ("2021 MAR 16 10:53:26.699087 TDB",
+            "2021 MAR 20 10:04:50.149422 TDB")
+    Time = ("2021 MAR 20 10:04:51.429567 TDB",
+            "2021 APR 04 04:11:55.705288 TDB")
+    File = $chandrayaan2/kernels/ck/ch2_att_27Feb2021_04Apr2021_v1.bc
+    Type = Reconstructed
+  End_Group
+
+  Group = Selection
+    Time = ("2021 MAR 27 06:08:34.244304 TDB",
+            "2021 APR 05 04:48:26.000284 TDB")
+    Time = ("2021 APR 05 04:48:27.792136 TDB",
+            "2021 APR 08 06:05:55.941449 TDB")
+    Time = ("2021 APR 08 06:05:56.197413 TDB",
+            "2021 APR 20 15:09:32.373450 TDB")
+    Time = ("2021 APR 20 15:09:33.141620 TDB",
+            "2021 MAY 01 22:28:20.282506 TDB")
+    Time = ("2021 MAY 01 22:28:21.562639 TDB",
+            "2021 MAY 03 21:53:20.630638 TDB")
+    Time = ("2021 MAY 03 21:53:21.398564 TDB",
+            "2021 MAY 04 23:33:15.397961 TDB")
+    File = $chandrayaan2/kernels/ck/ch2_att_27Mar2021_04May2021_v1.bc
+    Type = Reconstructed
+  End_Group
+End_Object
+End

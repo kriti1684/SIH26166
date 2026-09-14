@@ -1,0 +1,16 @@
+{
+  "offset_dx": -247.17079120130893,
+  "offset_dy": -2360.083580124672,
+  "similarity_tx": -410.52144261549705,
+  "similarity_ty": -2135.578832904554,
+  "rotation_deg": -0.8954429314541453,
+  "scale": 0.9871634232469247,
+  "decimation_used": 11,
+  "n_matches": 8,
+  "n_inliers": 6,
+  "inlier_ratio": 0.75,
+  "rmse_coarse_full_res_px": 17.19685836676673,
+  "pyramid_level": 3,
+  "full_height": 75909,
+  "full_width": 8398
+}
