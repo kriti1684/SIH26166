@@ -1,0 +1,236 @@
+KPL/IK
+
+Chandrayaan-2 Orbiter IIRS Instrument Kernel
+============================================
+
+This Instrument Kernel (IK) file contains Field-Of-View (FOV) definitions for Chandrayaan-2 Orbiter Imaging Infrared Spectrometer IIRS payload.
+
+
+Version and Date
+---------------------------------------------------------------------------
+
+   Version 1.0 -- June 19, 2023 -- 
+   SAC Optical Payload DP Team, SAC, Ahmedabad
+   Flight Dynamics Group, URSC-ISRO, Bangalore
+
+
+   Information provided by the Payload team - SEDA/SAC.
+   
+   Kernels Verified by - Flight Dynamics Group, URSC.
+
+
+References
+--------------------------------------------------------------
+
+   1. Kernel Pool Required Reading
+
+   2. C-kernel Required Reading
+
+   3. GETFOV, getfoc_c, cspice_getfov headers
+   
+Contact Information
+========================================================================
+
+   SAC Optical Payload DP Team, SAC, Ahmedabad
+   Flight Dynamics Group, URSC, Bangalore
+
+   
+Implementation Notes
+--------------------------------------------------------
+ 
+   This file is used by the SPICE system as follows: programs that make
+   use of this I-kernel must `load' the kernel, normally during program
+   initialization. Loading the kernel associates data items with their
+   names in a data structure called the `kernel pool'. The SPICELIB
+   routine FURNSH loads a kernel file into the pool as shown below.
+
+      CALL FURNSH ( I_kernel_name )    --FORTRAN
+      furnsh_c    ( I_kernel_name );   --C
+
+   In order for a program to extract data from the pool, the SPICELIB 
+   routines GDPOOL and GIPOOL are used. See [4] for more details.
+
+   This file was created and may be updated with a text editor or word
+   processor.
+
+
+IIRS Camera NAIF IDs
+--------------------------------------------------------
+
+   The following NAIF IDs are assigned to the camera and individual 
+   IIRS detectors:
+
+      Name                NAIF ID
+      ---------------------------
+      CH2_IIR_I           -152240      
+      ---------------------------
+
+Keyword Naming Conventions
+----------------------------------------------------------
+
+   All names referencing values in this IK file start with the characters `INS' followed by the NAIF Chandrayaan-2 Orbiter spacecraft ID number(-152) followed by a NAIF three digit ID code for instrument. 
+   
+   The remainder of the keyword name is an underscore character followed by the unique name of the data item. For example, the boresight direction of CH2_IIR_I is specified by:
+
+         INS-152240_BORESIGHT
+
+   The upper bound on the length of the name of any data item is 32 characters.
+
+   If the same item is included in more than one file, or if the same item appears more than once within a single file, the latest value supersedes any earlier values.
+
+
+Instrument Overview
+---------------------------------------------------------------------------
+The Imaging InfraRed Spectrometer (IIRS) is an advanced version of the spectrometers (HySI, M3 and SIR-2) flown onboard Chandrayaan-1. 
+IIRS  is  based  on  the  offner  spectrometer  based  optical  configuration  in  which  convex  and blazed  grating  is  used.  Fore  
+optics  is  TMA  (Three  Mirror  Anastigmat)  based  optics,  which collects  the  light  focus  on  to  the  slit  with  30um  width.  
+Through  slit  light  enters  into  the offner spectrometer. IIRS  detector  is  having  500  x  256  pixels  format  with  30um  square  
+pixel.  256  are  used  for spectral  bands  and  500  for  swath.  Optical  system  and  detector  both  caters  to  entire wavelength  
+range  0.8  um  to  5.0um.  Order  shorting  filter  (OSF)  is  the  integral  part  of detector assembly.  
+
+               |<------  500 detectors ----->|
+               ------------........ ------------   ----
+    30 micron  |  |  |  | ........ |  |  |  |  |    ^
+               ----------........---------------    |    
+			   |  |  |  | ........ |  |  |  |  |    |
+               ----------........----------------   |
+			   |  |  |  | ........ |  |  |  |  |    |
+			   ----------........----------------   |                                .
+											   .    | 
+											   .    |
+               ----------........----------------   256
+			   |  |  |  | ........ |  |  |  |  |    |
+               ----------........----------------   |
+			   |  |  |  | ........ |  |  |  |  |    v
+               ----------........---------------   ---  
+
+Mounting Alignment
+---------------------------------------------------------------------------
+
+   Refer to the latest version of the CHANDRAYAAN-2 Frames Definition
+   Kernel (FK)  for the IIRS reference frame definitions and
+   mounting alignment information.
+			   
+			   
+Field-of-View Layout
+--------------------------------------------------------------
+
+
+   IIRS Field-of-View:
+   ---------------------
+                      
+   
+   .      FOV     .  ^
+
+   |`.   .-.    .'|  |
+
+   |  `.'   ` .'  |  |
+
+   |    `.  .'    |  |
+
+   |      `'      | 75 mm
+
+   |    .'  `.    |  |
+
+   |  .'      `.  |  |
+
+   |.'          `.|  |
+
+   `--------------'  v
+
+   |<- -15 mm- -->|
+
+
+                         15 mm      
+        FOV =     ( ATAN ----- )  = 11.44 deg.
+                         75 mm 
+   >From the 100 km altitude of Chandrayaan-2 S/C, an fov angle of 11.44 deg provides a footprint of 20 km on the lunar surface. (FWHM angle 5.72 deg). 
+
+
+FOV Definitions
+--------------------------------------------------------------
+
+This section defines the FOV. These definitions are based on the IIRS detector parameters provided in a format consistent with/required by the SPICe(CSPICE) function GETFOV (getfov_c). 
+Mandatory key words if GETFOV will be used, are, INS-152240_FOV_FRAME, INS-152240_FOV_SHAPE and INS-152240_BORESIGHT.
+ 
+ Here, the X axis of the instrument IIRS is along the boresight (i.e 90 deg to the lunar surface). FOV_REF_ANGLE for IIRS is 0 degrees from the X axis. FOV_CROSS_ANGLE is  +/-5.72 degrees.
+                                   
+                             Y        
+                             ^
+                             | (X axis is into this plane)           
+           Z  <--------------x ------------->-Z
+                             |            
+					  -Y
+
+                          
+       
+where the FOV_REF_VECTOR keyword specifies a reference
+vector that, together with the boresight vector, define the plane in which the half angle given in the FOV_REF_ANGLE keyword is measured. The other half angle given in the FOV_CROSS_ANGLE keyword is measured in the plane normal to this plane and containing the boresight vector
+
+
+Camera Optics Parameters
+--------------------------------------------------------
+ 
+   The following table summarizes IIRS detector optics parameters:
+ 
+      Camera           Focal Length, mm     Aperture, mm       F number
+      -------------------------------------------------------------------
+      I                     75                  30              2.5
+      -------------------------------------------------------------------
+
+   These values are incorporated in the keywords below. focal lengths and aperture are converted to meters.
+
+      \begindata
+
+      INS-152240_FOCAL_LENGTH = ( 75.0 ) 
+      INS-152240_APERTURE     = ( 30.0 )
+      INS-152240_F_NUMBER     = ( 2.5 )
+      
+      \begintext
+
+Camera Detector Parameters
+--------------------------------------------------------
+ 
+   The following table summarizes IIRS detector parameters. As these data show the detectors are all line arrays.
+ 
+      Camera                 Lines      Pixels    Pixel Size, microns
+      ---------------------------------------------------------------
+      I                        256         500             30
+      ---------------------------------------------------------------
+
+   These values are incorporated in the keywords below; pixel sizes 
+   are converted to meters.
+
+      \begindata
+
+      INS-152240_PIXEL_SAMPLES  = ( 500        )
+      INS-152240_PIXEL_LINES    = ( 256           )
+      INS-152240_CENTER         = ( 249.5, 0.5 )       
+      INS-152240_PIXEL_SIZE     = ( 0.00003    )
+
+      \begintext
+
+Camera FOV Definitions
+--------------------------------------------------------
+
+   This section defines the field of view (FOV) for each detector, using a
+   rectangular shape.
+
+   The FOVs are defined with respect to the corresponding camera frames.
+
+      \begindata
+
+	 INS-152001_PLATFORM_ID        = ( -152001 )
+         INS-152240_FOV_CLASS_SPEC       = 'ANGLES'
+         INS-152240_FOV_SHAPE            = 'RECTANGLE'
+         INS-152240_FOV_FRAME            = 'CH2_IIRS_I'
+         INS-152240_BORESIGHT            = ( 1.0, 0.0, 0.0 )
+         INS-152240_FOV_REF_VECTOR       = (0.0, 1.0, 0.0 )
+         INS-152240_FOV_REF_ANGLE        = ( 0.0 )
+         INS-152240_FOV_CROSS_ANGLE      = ( 5.72 )
+         INS-152240_FOV_ANGLE_UNITS      = ( 'DEGREES' )
+
+      \begintext
+
+End of the IK file.
+

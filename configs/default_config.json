@@ -1,0 +1,60 @@
+{
+  "coarse_alignment": {
+    "target_long_side_px": 1600,
+    "max_pyramid_levels": 5,
+    "min_matches_to_accept": 5,
+    "max_keypoints": 4096,
+    "keypoint_threshold": 0.005,
+    "nms_radius": 3,
+    "sinkhorn_iterations": 20,
+    "match_threshold": 0.2,
+    "min_match_confidence": 0.20,
+    "ransac_threshold_decimated_px": 6,
+    "ransac_confidence": 0.999,
+    "ransac_max_iters": 5000
+  },
+  "tiled_matching": {
+    "tile_size": 1600,
+    "tile_overlap": 400,
+    "search_margin_px": 250,
+    "min_valid_fraction": 0.10,
+    "nodata_margin_px": 2,
+    "max_keypoints": 2048,
+    "nms_radius": 3,
+    "keypoint_threshold": 0.005,
+    "sinkhorn_iterations": 20,
+    "match_threshold": 0.2,
+    "min_match_confidence": 0.20,
+    "random_seed": 42
+  },
+  "drift_profiler": {
+    "min_confidence": 0.30,
+    "segment_size_px": 2500,
+    "ransac_threshold_px": 15,
+    "ransac_confidence": 0.999,
+    "ransac_max_iters": 5000,
+    "min_points_per_segment": 15
+  },
+  "hybrid_transform": {
+    "min_confidence": 0.30,
+    "segment_size_px": 2500,
+    "ransac_threshold_px": 15,
+    "min_points_for_robust_segment": 300,
+    "poly_degree": 2,
+    "sigma_clip_rounds": 3,
+    "sigma_clip_threshold_px": 40,
+    "consistency_threshold_px": 15,
+    "pixel_size_m": 1.1523692688652
+  },
+  "warp": {
+    "block_rows": 4000,
+    "fixedpoint_iters": 4
+  },
+  "verifier": {
+    "tile_size": 1600,
+    "min_match_confidence": 0.50,
+    "nodata_margin_px": 2,
+    "clip_rounds": 3,
+    "clip_threshold_px": 25.0
+  }
+}

@@ -1,4 +1,7 @@
-import pvl
+try:
+    import pvl
+except ImportError:
+    pvl = None
 import os
 import glob
 import json
@@ -8,6 +11,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
+
 @dataclass
 class KernelCandidate:
     file_path: str
@@ -15,6 +19,7 @@ class KernelCandidate:
     start_time: datetime
     stop_time: datetime
     priority: int
+
 
 class KernelResolver:
     def __init__(self, isis_data_dir: str):
@@ -57,7 +62,7 @@ class KernelResolver:
         for db_file in db_files:
             try:
                 data = pvl.load(db_file)
-            except Exception as e:
+            except Exception:
                 continue
                 
             if hasattr(data, 'getall'):
@@ -101,7 +106,6 @@ class KernelResolver:
             return None
             
         candidates = self.get_candidates(db_folder)
-        
         valid_matches = []
         for c in candidates:
             if c.start_time <= img_start and c.stop_time >= img_stop:
@@ -113,15 +117,15 @@ class KernelResolver:
         valid_matches.sort(key=lambda x: x.priority, reverse=True)
         return valid_matches[0]
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Preflight Kernel Resolver for ISIS")
+    parser = argparse.ArgumentParser(description="Preflight Kernel Resolver for ISIS/SPICE")
     parser.add_argument("--xml", required=True, help="Path to PDS4 XML file")
     parser.add_argument("--isisdata", required=True, help="Path to ISISDATA directory")
-    parser.add_argument("--output", required=True, help="Path to output JSON file")
+    parser.add_argument("--output", required=True, help="Path to output JSON plan file")
     args = parser.parse_args()
 
     resolver = KernelResolver(args.isisdata)
-    
     plan = {"required": [], "missing": [], "local": [], "error": None}
     
     try:
@@ -129,7 +133,7 @@ def main():
     except Exception as e:
         plan["error"] = str(e)
         with open(args.output, "w") as f:
-            json.dump(plan, f)
+            json.dump(plan, f, indent=2)
         return
 
     for ktype in ["ck", "spk"]:
@@ -139,10 +143,7 @@ def main():
             continue
             
         real_path = best.file_path.replace("$chandrayaan2", os.path.join(args.isisdata, "chandrayaan2"))
-        
-        # normalize path
         real_path = os.path.normpath(real_path)
-        
         plan["required"].append(real_path)
         
         if os.path.exists(real_path):
@@ -151,7 +152,9 @@ def main():
             plan["missing"].append(real_path)
             
     with open(args.output, "w") as f:
-        json.dump(plan, f)
+        json.dump(plan, f, indent=2)
+    print(f"[SUCCESS] Kernel resolution plan written to: {args.output}")
+
 
 if __name__ == "__main__":
     main()
