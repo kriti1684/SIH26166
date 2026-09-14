@@ -1,15 +1,28 @@
-# Core PyTorch and Deep Learning
+# ============================================================
+# Requirements for Lunar Multi-Sensor Co-Registration Pipeline
+# SIH 2026 — Problem Statement 26166
+# 100% ISIS-free, WSL-free, Cross-Platform
+# ============================================================
+
+# ── Deep Learning (SuperPoint + SuperGlue) ───────────────────
 torch>=2.0.0
 torchvision>=0.15.0
 
-# Geospatial & Scientific Processing
-rasterio>=1.3.0
+# ── Geospatial & Image I/O ───────────────────────────────────
+rasterio>=1.3.0          # GeoTIFF, PDS3, PDS4 raster I/O
+GDAL>=3.4.0              # Warping, GCP attachment (Python bindings)
+h5py>=3.7.0              # IIRS HDF5 hyperspectral data reader
+
+# ── Scientific Computing ─────────────────────────────────────
 numpy>=1.23.0
-scipy>=1.9.0
+scipy>=1.9.0             # Gaussian blur, RANSAC in drift_profiler
+scikit-image>=0.20.0     # SSIM for verification quality metric
 pandas>=1.5.0
-opencv-python>=4.7.0
 matplotlib>=3.6.0
 
-# SPICE & Planetary Data Support
-spiceypy>=5.0.0
-pvl>=1.3.0
+# ── Computer Vision ──────────────────────────────────────────
+opencv-python>=4.7.0
+
+# ── Planetary Science ────────────────────────────────────────
+spiceypy>=5.0.0          # NASA NAIF SPICE ray-tracing (no ISIS needed)
+pvl>=1.3.0               # PDS3 label parser (LRO NAC .IMG headers)

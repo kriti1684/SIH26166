@@ -1,237 +1,291 @@
+"""
+src/preprocessing/pipeline.py
+================================
+Multi-Sensor Ingestion & Preprocessing Pipeline — 100% ISIS-free, WSL-free.
+
+Previously this file contained:
+  - WSL subprocess bridging (wsl -d Ubuntu-24.04 ... mamba run ... isisimport)
+  - lronac2isis / lrowac2isis / spiceinit / cam2map ISIS3 commands
+  - to_wsl_path() helpers and DEFAULT_WSL_* environment variables
+
+All of that is now replaced by:
+  - ingest.py         → Pure-Python rasterio/GDAL raster reader
+  - spice_georeference.py → Native SpiceyPy ray-tracer (no WSL, no ISIS)
+  - normalizer.py     → uint8 contrast normalizer
+
+CLI Usage:
+    python -m src.preprocessing.pipeline \\
+        --input ./data/raw_data/ch2_ohrc_20211014T072133.xml \\
+        --sensor OHRC \\
+        --output_dir ./normalized
+
+    python -m src.preprocessing.pipeline \\
+        --input ./data/raw_data/M162680801LE.IMG \\
+        --sensor NAC \\
+        --output_dir ./normalized
+"""
+
 import argparse
-import subprocess
 import sys
 from pathlib import Path
-import os
-import json
-import tempfile
-import rasterio
-import numpy as np
 
+from .ingest import (
+    load_raster,
+    inspect_projection,
+    extract_pds4_bounds,
+    extract_pds4_metadata,
+    write_raw_tif,
+    MOON_CRS,
+)
 from .normalizer import normalize_tiff
-from .band_selector import select_best_band_for_wac
+from .spice_georeference import fallback_4_corner, compute_gcps, apply_gcps_gdal
 
-DEFAULT_WSL_DISTRO = os.environ.get("WSL_DISTRO", "Ubuntu-24.04")
-DEFAULT_WSL_ISISDATA = os.environ.get("WSL_ISISDATA", "/home/kritikriti/isisdata_ch2")
-DEFAULT_WIN_ISISDATA = os.environ.get("WIN_ISISDATA", r"\\wsl.localhost\Ubuntu-24.04\home\kritikriti\isisdata_ch2")
+# ── Kernel search paths (Windows & Linux, no WSL needed) ─────────────────────
+import os
+_DEFAULT_KERNEL_DIR = Path(
+    os.environ.get(
+        "SPICE_KERNEL_DIR",
+        str(Path(__file__).parents[3] / "data" / "spice_kernels"),
+    )
+)
 
+_SENSOR_KERNEL_MAP = {
+    "OHRC":  "ch2_ohr_v01.ti",
+    "TMC":   "ch2_tmc_v01.ti",
+    "TMC2":  "ch2_tmc_v01.ti",
+    "IIRS":  "ch2_iir_v01.ti",
+}
 
-def to_wsl_path(win_path):
-    path_str = str(win_path).replace("\\", "/")
-    if len(path_str) >= 2 and path_str[1] == ":":
-        drive = path_str[0].lower()
-        path_str = f"/mnt/{drive}/" + path_str[3:]
-    return path_str
-
-
-def extract_metadata(file_path):
-    metadata = {}
-    file_str = str(file_path).lower()
-    try:
-        if file_str.endswith(".xml"):
-            import xml.etree.ElementTree as ET
-            tree = ET.parse(file_path)
-            root = tree.getroot()
-            ns = {'pds': 'http://pds.nasa.gov/pds4/pds/v1'}
-            time_elem = root.find('.//pds:start_date_time', ns)
-            if time_elem is not None:
-                metadata['STARTTIME'] = time_elem.text.strip().replace('Z', '')
-        else:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                header = f.read(100000)
-                metadata['is_mapped'] = 'Group = Mapping' in header or 'GROUP = MAPPING' in header
-                for line in header.split('\n'):
-                    line = line.strip()
-                    if '=' in line:
-                        key, val = line.split('=', 1)
-                        key = key.strip().upper()
-                        val = val.strip().split('<')[0].strip().replace('"', '')
-                        if key in ['INSTRUMENT_ID', 'INSTRUMENTID', 'START_TIME', 'STARTTIME']:
-                            metadata[key.replace('_', '')] = val
-    except Exception as e:
-        print(f"Error extracting metadata from {file_path}: {e}")
-    return metadata
+_COMMON_KERNELS = [
+    "naif0012.tls",
+    "pck00010.tpc",
+    "ch2_sclk_v1.tsc",
+    "ch2_v01.tf",
+    "de430s.bsp",
+]
 
 
-def run_command(cmd, shell=False):
-    isis_commands = {"isisimport", "spiceinit", "isd_generate", "csminit", "maptemplate", "cam2map", "lronac2isis", "lrowac2isis", "downloadIsisData", "gdal_translate"}
-    if os.name == 'nt' and cmd[0] in isis_commands:
-        wsl_cmd_parts = []
-        for arg in cmd:
-            if "=" in arg:
-                key, val = arg.split("=", 1)
-                wsl_cmd_parts.append(f"{key}='{to_wsl_path(val)}'")
-            else:
-                wsl_cmd_parts.append(f"'{to_wsl_path(arg)}'")
-        
-        inner_cmd = " ".join(wsl_cmd_parts)
-        wsl_cmd = [
-            "wsl", "-d", DEFAULT_WSL_DISTRO, "-e", "bash", "-ic",
-            f"mamba run -n ch2_isis_dev env ISISDATA={DEFAULT_WSL_ISISDATA} ALESPICEROOT={DEFAULT_WSL_ISISDATA} {inner_cmd}"
-        ]
-        
-        print(f"\n[RUNNING in WSL]: {' '.join(wsl_cmd)}")
-        try:
-            subprocess.run(wsl_cmd, check=True)
-            return
-        except subprocess.CalledProcessError as e:
-            print(f"WSL Command failed with error code: {e.returncode}")
-            sys.exit(e.returncode)
+def _find_local_kernels(sensor: str) -> list[Path]:
+    """
+    Discover SPICE kernels stored locally in data/spice_kernels/.
 
-    print(f"\n[RUNNING]: {' '.join(cmd) if isinstance(cmd, list) else cmd}")
-    try:
-        subprocess.run(cmd, check=True, shell=shell)
-    except FileNotFoundError as e:
-        print(f"[WARNING] Command not found: {cmd[0]}")
-        raise e
-    except subprocess.CalledProcessError as e:
-        print(f"Command failed with error code: {e.returncode}")
-        sys.exit(e.returncode)
-
-
-def resolve_ch2_kernels(xml_file, isisdata_path):
-    print("\n[KERNEL RESOLVER]: Checking local SPICE databases...")
-    out_json = tempfile.mktemp(suffix=".json")
-    
-    resolver_script = to_wsl_path(Path(__file__).parent / "kernel_resolver.py")
-    wsl_xml = to_wsl_path(xml_file)
-    wsl_out = to_wsl_path(out_json)
-    
-    wsl_resolver_cmd = [
-        "wsl", "-d", DEFAULT_WSL_DISTRO, "-e", "bash", "-ic",
-        f"mamba run -n ch2_isis_dev python '{resolver_script}' --xml '{wsl_xml}' --isisdata '{isisdata_path}' --output '{wsl_out}'"
-    ]
-    
-    print("\n[KERNEL RESOLVER]: Calculating missing kernels...")
-    run_command(wsl_resolver_cmd)
-    
-    with open(out_json, "r") as f:
-        plan = json.load(f)
-    os.remove(out_json)
-    
-    if plan.get("error"):
-        print(f"[KERNEL RESOLUTION ERROR]: {plan['error']}")
+    Returns a list of existing kernel paths. If none found, returns [].
+    This triggers the automatic fallback to the 4-corner GCP method in
+    spice_georeference.py.
+    """
+    found = []
+    base = _DEFAULT_KERNEL_DIR
+    if not base.exists():
+        print(f"[PIPELINE] Kernel directory not found: {base}  → will use 4-corner fallback.")
         return []
-        
-    resolved_paths = list(plan.get("local", []))
-    missing = plan.get("missing", [])
-    
-    for m in missing:
-        if m.startswith("UNRESOLVED"):
-            print(f"[KERNEL RESOLVER WARNING]: Could not resolve kernel type: {m}")
-        else:
-            print(f"\n[KERNEL RESOLVER]: Downloading: {m}")
-            try:
-                rel_path = str(Path(m).relative_to(Path(isisdata_path) / "chandrayaan2")).replace("\\", "/")
-            except ValueError:
-                rel_path = Path(m).name
-                
-            dl_cmd = [
-                "downloadIsisData", "chandrayaan2", isisdata_path,
-                "--no-kernels",
-                f"--include={rel_path}"
-            ]
-            run_command(dl_cmd)
-            resolved_paths.append(m)
-            
-    return resolved_paths
+
+    # Common kernels (LSK, PCK, SCLK, FK, SPK)
+    for kname in _COMMON_KERNELS:
+        for candidate in base.rglob(kname):
+            found.append(candidate)
+            break  # take first match
+
+    # Instrument-specific kernel (IK)
+    ik_name = _SENSOR_KERNEL_MAP.get(sensor.upper())
+    if ik_name:
+        for candidate in base.rglob(ik_name):
+            found.append(candidate)
+            break
+
+    # Also pick up any .bc (CK attitude) or .bsp (SPK trajectory) kernels
+    for ext in ("*.bc", "*.bsp"):
+        for candidate in base.rglob(ext):
+            if candidate not in found:
+                found.append(candidate)
+
+    if found:
+        print(f"[PIPELINE] Found {len(found)} SPICE kernels in {base}")
+    else:
+        print(f"[PIPELINE] No SPICE kernels found in {base}  → will use 4-corner fallback.")
+
+    return found
 
 
-def process_lro(input_file: Path, sensor: str, reference_cub: Path, output_dir: Path, cache_dir: Path):
+# ── Sensor processing functions ───────────────────────────────────────────────
+
+def process_lro(input_file: Path, sensor: str, output_dir: Path) -> Path:
+    """
+    Ingest and normalize a LRO NAC or WAC image — no ISIS required.
+
+    Strategy
+    --------
+    1. Check if the file is already a map-projected GeoTIFF (QuickMap downloads).
+       → If yes, pass directly to normalizer.
+
+    2. If raw PDS3 (.IMG) → GDAL's native PDS driver reads image + metadata
+       without lronac2isis. The raster is unprojected (Level-1).
+       → Normalizer rescales to uint8. No georeferencing is applied at this
+         stage; coarse matching in SuperPoint handles the alignment.
+
+    Note: Full SPICE georeferencing for LRO requires lronac2isis / lrowac2isis
+    kernels. Those are available if you download the LRO data as GeoTIFF from
+    https://quickmap.lroc.asu.edu/ (recommended for SIH demos).
+    """
     stem = input_file.stem
+    output_dir.mkdir(parents=True, exist_ok=True)
     norm_tif = output_dir / f"{stem}_normalized.tif"
-    temp_cub = output_dir / f"{stem}_temp.cub"
-    map_cub = output_dir / f"{stem}_map.cub"
-    raw_tif = output_dir / f"{stem}_raw.tif"
-    
-    ingest_cmd = "lronac2isis" if sensor == "NAC" else "lrowac2isis"
-    try:
-        run_command([ingest_cmd, f"from={input_file}", f"to={temp_cub}"])
-        run_command(["spiceinit", f"from={temp_cub}", "web=true", "shape=ellipsoid"])
-        
-        if reference_cub:
-            run_command(["cam2map", f"from={temp_cub}", f"to={map_cub}", f"map={reference_cub}", "matchmap=true"])
-        else:
-            run_command(["cam2map", f"from={temp_cub}", f"to={map_cub}", "pixres=mpp", "resolution=2.0"])
-        run_command(["gdal_translate", str(map_cub), str(raw_tif)])
-        
-        normalize_tiff(raw_tif, norm_tif, is_ohrc=False)
-        
-        if cache_dir:
-            import shutil
-            cache_path_cub = cache_dir / f"{sensor}_{stem}_map.cub"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            if map_cub.exists():
-                shutil.copy2(map_cub, cache_path_cub)
-                
-        if temp_cub.exists(): temp_cub.unlink()
-        if map_cub.exists(): map_cub.unlink()
-        if raw_tif.exists(): raw_tif.unlink()
-        print(f"Finished processing LRO {sensor}: {norm_tif}")
 
-    except FileNotFoundError:
-        print(f"[FALLBACK] Bypassing ISIS and directly reading {input_file.name} via rasterio...")
+    proj_info = inspect_projection(input_file)
+
+    if proj_info['is_projected']:
+        print(f"[PIPELINE] {input_file.name} is already map-projected "
+              f"(GSD ≈ {proj_info['gsd_m']:.2f} m) — normalizing directly.")
+        normalize_tiff(input_file, norm_tif, is_ohrc=False)
+    else:
+        print(f"[PIPELINE] {input_file.name} appears unprojected — "
+              f"reading via rasterio and normalizing without georeference.")
+        # Still useful for feature matching (SuperPoint is position-agnostic)
         normalize_tiff(input_file, norm_tif, is_ohrc=False)
 
+    print(f"[PIPELINE] LRO {sensor} → {norm_tif}")
+    return norm_tif
 
-def process_ch2_optical(input_file: Path, sensor: str, reference_cub: Path, output_dir: Path, cache_dir: Path):
+
+def process_ch2(input_file: Path, sensor: str, output_dir: Path) -> Path:
+    """
+    Ingest and georeference a Chandrayaan-2 OHRC / TMC-2 / IIRS image.
+
+    Strategy (dual-engine, fully native):
+    ──────────────────────────────────────
+    Engine 1 — SPICE (High Precision):
+        If SPICE kernels exist in data/spice_kernels/, run sincpt() ray-tracing
+        to produce dense GCPs → GDAL TPS warp → Equirectangular Moon GeoTIFF.
+
+    Engine 2 — 4-Corner Fallback (Zero-SPICE):
+        If kernels are absent, extract lat/lon corners from the PDS4 XML
+        <isda:System_Level_Coordinates> block and apply a simple affine warp.
+
+    Both engines produce a valid GeoTIFF with Moon Equirectangular CRS that
+    can be matched against LRO data.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
     stem = input_file.stem
-    norm_tif = output_dir / f"{stem}_normalized.tif"
-    raw_tif = output_dir / f"{stem}_raw.tif"
-    
-    resolved_kernels = []
-    if input_file.suffix.lower() == ".xml":
-        resolved_kernels = resolve_ch2_kernels(input_file, DEFAULT_WSL_ISISDATA)
-    
-    win_kernels = []
-    if resolved_kernels:
-        base_lsk = os.path.join(DEFAULT_WIN_ISISDATA, "base", "kernels", "lsk", "naif0012.tls")
-        ch2_pck = os.path.join(DEFAULT_WIN_ISISDATA, "chandrayaan2", "kernels", "pck", "pck00010.tpc")
-        ch2_sclk = os.path.join(DEFAULT_WIN_ISISDATA, "chandrayaan2", "kernels", "sclk", "ch2_sclk_v1.tsc")
-        ch2_fk = os.path.join(DEFAULT_WIN_ISISDATA, "chandrayaan2", "kernels", "fk", "ch2_v01.tf")
-        ch2_tspk = os.path.join(DEFAULT_WIN_ISISDATA, "chandrayaan2", "kernels", "tspk", "de430s.bsp")
-        ik_name = "ch2_ohr_v01.ti" if sensor == "OHRC" else "ch2_tmc_v01.ti"
-        ch2_ik = os.path.join(DEFAULT_WIN_ISISDATA, "chandrayaan2", "kernels", "ik", ik_name)
-        
-        win_kernels = [base_lsk, ch2_pck, ch2_sclk, ch2_fk, ch2_tspk, ch2_ik]
-        for k in resolved_kernels:
-            win_kernels.append(k.replace(DEFAULT_WSL_ISISDATA, DEFAULT_WIN_ISISDATA).replace("/", "\\"))
-            
-    spice_georef_script = Path(__file__).parent / "spice_georeference.py"
-    python_exe = sys.executable
-    
-    cmd = [python_exe, str(spice_georef_script), "--xml", str(input_file), "--raw_tif", str(input_file.with_suffix(".img")), "--out_tif", str(raw_tif), "--sensor", sensor]
-    if win_kernels:
-        cmd.extend(["--kernels"] + win_kernels)
-        
-    try:
-        run_command(cmd)
-    except Exception as e:
-        print(f"[ERROR] Failed to run spice_georeference.py: {e}")
-        
-    if raw_tif.exists():
-        normalize_tiff(raw_tif, norm_tif, is_ohrc=(sensor == "OHRC"))
-        raw_tif.unlink()
-    else:
-        print("[WARNING] spice_georeference did not produce output. Generating unprojected normalized image...")
-        normalize_tiff(input_file.with_suffix(".img"), norm_tif, is_ohrc=(sensor == "OHRC"))
 
+    # ── Determine the linked .img raster path ──────────────────────────────
+    xml_file = input_file if input_file.suffix.lower() == '.xml' else None
+    if xml_file is None:
+        # If user passed the .img directly, look for sibling .xml
+        sibling_xml = input_file.with_suffix('.xml')
+        xml_file = sibling_xml if sibling_xml.exists() else None
+
+    raw_img = input_file.with_suffix('.img')
+    if not raw_img.exists():
+        raw_img = input_file.with_suffix('.IMG')
+
+    raw_tif_path  = output_dir / f"{stem}_raw.tif"
+    norm_tif_path = output_dir / f"{stem}_normalized.tif"
+
+    # ── Check if already projected ─────────────────────────────────────────
+    proj_info = inspect_projection(input_file)
+    if proj_info['is_projected']:
+        print(f"[PIPELINE] {input_file.name} is already map-projected — normalizing.")
+        normalize_tiff(input_file, norm_tif_path, is_ohrc=(sensor == "OHRC"))
+        return norm_tif_path
+
+    # ── Load raw raster into a plain TIF (needed for gdal_translate GCPs) ──
+    print(f"[PIPELINE] Loading raw raster: {raw_img if raw_img.exists() else input_file}")
+    src_path = raw_img if raw_img.exists() else input_file
+    arr, ds = load_raster(src_path)
+    if ds is not None:
+        ds.close()
+    write_raw_tif(arr, raw_tif_path)
+
+    # ── Try SPICE engine first ─────────────────────────────────────────────
+    georef_ok = False
+    if xml_file is not None:
+        kernels = _find_local_kernels(sensor)
+        if kernels:
+            print(f"[PIPELINE] Running SPICE engine for {sensor}...")
+            try:
+                gcps = compute_gcps(
+                    xml_path=xml_file,
+                    width=arr.shape[1],
+                    height=arr.shape[0],
+                    kernel_paths=[str(k) for k in kernels],
+                    sensor=sensor if sensor in ('OHRC', 'TMC', 'IIRS') else 'OHRC',
+                    step=100,
+                )
+                if gcps:
+                    apply_gcps_gdal(xml_file, raw_tif_path, output_dir / f"{stem}_georef.tif", gcps)
+                    normalize_tiff(
+                        output_dir / f"{stem}_georef.tif",
+                        norm_tif_path,
+                        is_ohrc=(sensor == "OHRC"),
+                    )
+                    georef_ok = True
+            except Exception as e:
+                print(f"[PIPELINE] SPICE engine failed: {e}. Falling back to 4-corner method.")
+
+        # ── Fallback: 4-corner affine georeferencing from XML ────────────
+        if not georef_ok:
+            print(f"[PIPELINE] Running 4-corner fallback for {sensor}...")
+            success = fallback_4_corner(xml_file, raw_tif_path, output_dir / f"{stem}_georef.tif")
+            if success:
+                normalize_tiff(
+                    output_dir / f"{stem}_georef.tif",
+                    norm_tif_path,
+                    is_ohrc=(sensor == "OHRC"),
+                )
+                georef_ok = True
+
+    # ── Last resort: normalize raw without georeference ────────────────────
+    if not georef_ok:
+        print("[PIPELINE] WARNING: Could not georeference. "
+              "Normalizing raw image without projection — "
+              "coarse SuperPoint matching will still work.")
+        normalize_tiff(raw_tif_path, norm_tif_path, is_ohrc=(sensor == "OHRC"))
+
+    # ── Cleanup intermediates ──────────────────────────────────────────────
+    for tmp in [raw_tif_path]:
+        if tmp.exists():
+            tmp.unlink()
+
+    print(f"[PIPELINE] CH-2 {sensor} → {norm_tif_path}")
+    return norm_tif_path
+
+
+# ── CLI entry point ───────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Multi-Sensor Ingestion & Preprocessing Pipeline")
-    parser.add_argument("--input", required=True, type=Path, help="Input raw image file (.IMG, .xml, .h5)")
-    parser.add_argument("--sensor", required=True, choices=["NAC", "WAC", "OHRC", "TMC2", "IIRS"])
-    parser.add_argument("--reference_cub", type=Path, help="Reference ISIS cube to copy map projection from")
-    parser.add_argument("--output_dir", default=Path("."), type=Path)
-    parser.add_argument("--nav", type=Path, help="Nav/Geometry file for IIRS")
-    parser.add_argument("--cache_dir", type=Path, default=Path("./preprocessed_cache"))
+    parser = argparse.ArgumentParser(
+        description=(
+            "Multi-Sensor Ingestion & Preprocessing Pipeline\n"
+            "100%% Python — no ISIS3, no WSL, no external dependencies.\n\n"
+            "Supported sensors:\n"
+            "  NAC   — LRO Narrow Angle Camera       (0.5–1.2 m)\n"
+            "  WAC   — LRO Wide Angle Camera          (100 m)\n"
+            "  OHRC  — Chandrayaan-2 High Res Camera  (0.25 m)\n"
+            "  TMC2  — Chandrayaan-2 Terrain Mapping  (5.0 m)\n"
+            "  IIRS  — Chandrayaan-2 IR Imaging Spec  (8–20 m)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--input", required=True, type=Path,
+        help="Path to raw image file (.IMG, .xml, .h5, .tif)",
+    )
+    parser.add_argument(
+        "--sensor", required=True,
+        choices=["NAC", "WAC", "OHRC", "TMC2", "IIRS"],
+        help="Instrument identifier",
+    )
+    parser.add_argument(
+        "--output_dir", default=Path("./normalized"), type=Path,
+        help="Directory to write normalized GeoTIFF (default: ./normalized)",
+    )
     args = parser.parse_args()
-    
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    if args.sensor in ["NAC", "WAC"]:
-        process_lro(args.input, args.sensor, args.reference_cub, args.output_dir, args.cache_dir)
-    elif args.sensor in ["OHRC", "TMC2"]:
-        process_ch2_optical(args.input, args.sensor, args.reference_cub, args.output_dir, args.cache_dir)
+
+    if args.sensor in ("NAC", "WAC"):
+        out = process_lro(args.input, args.sensor, args.output_dir)
+    else:
+        out = process_ch2(args.input, args.sensor, args.output_dir)
+
+    print(f"\n[PIPELINE] ✓ Done: {out}")
 
 
 if __name__ == "__main__":
