@@ -1,6 +1,6 @@
 """
-run_pipeline.py
-===============
+main.py
+=======
 Production CLI entry-point for the Next-Gen Sub-Pixel Lunar Image
 Co-Registration Engine (SIH Problem Statement SIH26166).
 
@@ -12,7 +12,7 @@ Features:
   - Phase 5: Streaming block-wise bicubic warping & multi-pillar verification
 
 Usage Example:
-  python run_pipeline.py --source <path> --reference <path> \
+  python main.py --source <path> --reference <path> \
                             --sensor_src <OHRC|IIRS|TMC> --sensor_ref <NAC|WAC|SELENE> \
                             --out_dir <path>
 """

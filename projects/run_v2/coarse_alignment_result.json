@@ -1,0 +1,15 @@
+{
+  "dx": 57.81005859375,
+  "dy": -1983.6005859375,
+  "confidence": 0.467843631778058,
+  "inliers_count": 371,
+  "drift_model": {
+    "dy_slope": -0.0038345079779625616,
+    "dy_intercept": -1952.7547858186351,
+    "dx_slope": 0.00454822121995903,
+    "dx_intercept": 30.99569901019497
+  },
+  "source": "projects\\run_v2\\harmonized\\bbox_overlap_source_cammap.tif",
+  "reference": "projects\\run_v2\\harmonized\\bbox_overlap_ref_cropped.tif",
+  "method_used": "multiscale_pyramid_sift"
+}

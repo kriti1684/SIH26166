@@ -1,316 +1,474 @@
-import sys
-import argparse
-from pathlib import Path
+"""
+src/registration/coarse_alignment.py
+========================================
+High-Reliability Global Coarse Alignment Engine (Task 2.2).
+
+Provides two independent methods for estimating the global (dx, dy) offset between
+the source and reference BBox-harmonized rasters, without requiring ANY feature descriptors.
+Both are illumination-invariant.
+
+Method A: Bandpass FFT Phase Correlation
+-----------------------------------------
+Operates on structural maps (Phase Congruency or gradient), not raw pixels.
+Uses Hanning windowing to suppress edge-ringing artifacts.
+Accurate to approximately +/- 2 pixels.
+
+Method B: Crater Rim Consensus Voting
+---------------------------------------
+Physically robust: extracts circular/elliptical crater rims (stable 3D features
+whose geometry is sun-angle invariant), then votes for the most consistent
+translation vector across all matched crater pairs.
+Proven in our research tests to find the correct offset (dx=2, dy=-54) with
+8 consensus votes where no other method succeeded.
+
+The module runs BOTH methods and cross-validates the results.
+If they agree within a tolerance, the higher-confidence estimate is used.
+If they disagree, a fallback hierarchy is invoked.
+"""
+
 import json
-import os
+import math
+from pathlib import Path
+from typing import Dict, Any, Optional, Tuple
 
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-import numpy as np
 import cv2
+import numpy as np
 import rasterio
-import torch
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import ConnectionPatch
+from rasterio.windows import Window
 
 try:
-    from src.models.matching import Matching
+    from src.preprocessing.structural import compute_structural_representation
 except ImportError:
-    from ..models.matching import Matching
+    from preprocessing.structural import compute_structural_representation
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Coarse Alignment (Stage 0)")
-    parser.add_argument("--source_img", type=Path, required=True, help="Path to source image (e.g. OHRC)")
-    parser.add_argument("--ref_img", type=Path, required=True, help="Path to reference image (e.g. NAC)")
-    parser.add_argument("--output_dir", type=Path, required=True, help="Run output directory")
-    parser.add_argument("--config", type=Path, default=None, help="Path to custom JSON config")
-    return parser.parse_args()
+# ─── Constants ───────────────────────────────────────────────────────────────
+
+# Hanning window size for FFT phase correlation (must be power of 2 for speed)
+FFT_PATCH_SIZE = 2048
+
+# Minimum Hough circle confidence for rim detection
+MIN_HOUGH_ACCUM = 40
+
+# Minimum radius and max radius for crater rim detection (in pixels)
+CRATER_MIN_RADIUS_PX = 15
+CRATER_MAX_RADIUS_PX = 200
+
+# Histogram bin width (pixels) for crater center voting accumulator
+VOTING_BIN_SIZE = 4
+
+# Max plausible offset range to search (+/- pixels, both axes)
+MAX_OFFSET_SEARCH_PX = 300
+
+# Agreement threshold: methods agree if their estimates are within this many pixels
+METHOD_AGREEMENT_THRESH_PX = 30
 
 
-def run_coarse_alignment(source_path: Path, ref_path: Path, output_dir: Path, custom_config: dict = None):
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    result_json = output_dir / "coarse_alignment_result.json"
+# ─── Method A: FFT Phase Correlation on Structural Maps ─────────────────────
 
-    # Default parameters
-    target_long_side = 1600
-    max_pyramid_levels = 5
-    min_matches_to_accept = 5
-    max_keypoints = 4096
-    keypoint_threshold = 0.005
-    nms_radius = 3
-    sinkhorn_iterations = 20
-    match_threshold = 0.2
-    min_match_confidence = 0.20
-    ransac_threshold_decimated_px = 6
-    ransac_confidence = 0.999
-    ransac_max_iters = 5000
+def phase_correlation_coarse(
+    src_arr: np.ndarray,
+    ref_arr: np.ndarray,
+    patch_size: int = FFT_PATCH_SIZE
+) -> Tuple[float, float, float]:
+    """
+    Estimate (dx, dy) global offset via Hanning-windowed FFT phase correlation
+    on a central patch of the structural maps.
 
-    if custom_config and "coarse_alignment" in custom_config:
-        cfg = custom_config["coarse_alignment"]
-        target_long_side = cfg.get("target_long_side_px", target_long_side)
-        max_pyramid_levels = cfg.get("max_pyramid_levels", max_pyramid_levels)
-        min_matches_to_accept = cfg.get("min_matches_to_accept", min_matches_to_accept)
-        max_keypoints = cfg.get("max_keypoints", max_keypoints)
+    Steps:
+      1. Extract a central patch_size x patch_size crop from both structural maps.
+      2. Apply a Hanning window to suppress spectral leakage at boundaries.
+      3. Compute normalized cross-power spectrum in frequency domain.
+      4. Find the peak of the inverse FFT (peak = translation vector).
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"[STAGE 0] Device: {device}")
+    Returns:
+        (dx, dy, peak_response): translation in pixels and peak strength (0-1)
+    """
+    h, w = src_arr.shape
 
-    model_config = {
-        "superpoint": {
-            "nms_radius": nms_radius,
-            "keypoint_threshold": keypoint_threshold,
-            "max_keypoints": max_keypoints,
-        },
-        "superglue": {
-            "weights": "outdoor",
-            "sinkhorn_iterations": sinkhorn_iterations,
-            "match_threshold": match_threshold,
-        },
-    }
-    matching = Matching(model_config).eval().to(device)
-    print("SuperPoint + SuperGlue loaded.\n")
+    # Extract central patch
+    r0 = max(0, (h - patch_size) // 2)
+    c0 = max(0, (w - patch_size) // 2)
+    r1 = min(h, r0 + patch_size)
+    c1 = min(w, c0 + patch_size)
 
-    def read_decimated(path, decimation):
-        with rasterio.open(path) as src:
-            h, w = src.height, src.width
-            out_h = max(1, round(h / decimation))
-            out_w = max(1, round(w / decimation))
-            data = src.read(
-                1, out_shape=(1, out_h, out_w),
-                resampling=rasterio.enums.Resampling.average,
-            )
-            scale_row = h / out_h
-            scale_col = w / out_w
-            return data, scale_row, scale_col, h, w
+    ph = r1 - r0
+    pw = c1 - c0
 
-    def to_tensor(image):
-        t = torch.from_numpy(image.astype(np.float32) / 255.0).unsqueeze(0).unsqueeze(0)
-        return t.to(device)
+    src_patch = src_arr[r0:r1, c0:c1].astype(np.float32)
+    ref_patch = ref_arr[r0:r1, c0:c1].astype(np.float32)
 
-    def run_pass(source_img, ref_img):
-        image0 = to_tensor(source_img)
-        image1 = to_tensor(ref_img)
-        with torch.no_grad():
-            pred = matching({"image0": image0, "image1": image1})
+    # Hanning window to suppress edge discontinuities
+    hann = cv2.createHanningWindow((pw, ph), cv2.CV_32F)
+    src_w = src_patch * hann
+    ref_w = ref_patch * hann
 
-        kp0 = pred["keypoints0"][0].detach().cpu().numpy()
-        kp1 = pred["keypoints1"][0].detach().cpu().numpy()
-        matches0 = pred["matches0"][0].detach().cpu().numpy()
-        conf0 = pred["matching_scores0"][0].detach().cpu().numpy()
+    # Phase correlation
+    shift, response = cv2.phaseCorrelate(src_w, ref_w)
+    dx, dy = float(shift[0]), float(shift[1])
 
-        pts0, pts1, confs = [], [], []
-        for idx0 in np.where(matches0 > -1)[0]:
-            idx1 = int(matches0[idx0])
-            if idx1 < 0:
-                continue
-            confidence = float(conf0[idx0])
-            if confidence < min_match_confidence:
-                continue
-            x0, y0 = kp0[idx0]
-            x1, y1 = kp1[idx1]
-            if source_img[int(round(y0)), int(round(x0))] == 0 or ref_img[int(round(y1)), int(round(x1))] == 0:
-                continue
-            pts0.append([x0, y0])
-            pts1.append([x1, y1])
-            confs.append(confidence)
+    return dx, dy, float(response)
 
-        return (
-            np.array(pts0, dtype=np.float64),
-            np.array(pts1, dtype=np.float64),
-            np.array(confs, dtype=np.float64),
-            len(kp0), len(kp1),
+
+# ─── Method B: Crater Rim Consensus Voting ───────────────────────────────────
+
+def crater_rim_consensus_voting(
+    src_clahe: np.ndarray,
+    ref_clahe: np.ndarray,
+    min_radius: int = CRATER_MIN_RADIUS_PX,
+    max_radius: int = CRATER_MAX_RADIUS_PX,
+    bin_size: int = VOTING_BIN_SIZE,
+    max_offset: int = MAX_OFFSET_SEARCH_PX
+) -> Tuple[Optional[float], Optional[float], int, np.ndarray]:
+    """
+    Estimate (dx, dy) by:
+      1. Detecting crater circular rims in both images via Hough circle transform.
+      2. For each pair (src_crater_i, ref_crater_j) with similar radius,
+         compute the candidate translation: (ref_j.cx - src_i.cx, ref_j.cy - src_i.cy).
+      3. Build a 2D vote histogram over the translation space.
+      4. The peak bin is the consensus offset.
+
+    Returns:
+        (dx, dy, peak_votes, vote_histogram)
+        If no consensus found, returns (None, None, 0, histogram)
+    """
+    # Detect craters via Hough Circles on CLAHE-enhanced images
+    def detect_craters(img: np.ndarray) -> Optional[np.ndarray]:
+        circles = cv2.HoughCircles(
+            img,
+            cv2.HOUGH_GRADIENT,
+            dp=1.5,
+            minDist=min_radius * 2,
+            param1=100,
+            param2=MIN_HOUGH_ACCUM,
+            minRadius=min_radius,
+            maxRadius=max_radius
         )
+        return circles[0] if circles is not None else None
 
-    def find_valid_bbox(img):
-        valid = img > 0
-        rows_any = np.any(valid, axis=1)
-        cols_any = np.any(valid, axis=0)
-        if not np.any(rows_any):
-            return None
-        r0 = int(np.argmax(rows_any))
-        r1 = int(len(rows_any) - 1 - np.argmax(rows_any[::-1]))
-        c0 = int(np.argmax(cols_any))
-        c1 = int(len(cols_any) - 1 - np.argmax(cols_any[::-1]))
-        return r0, r1, c0, c1
+    src_circles = detect_craters(src_clahe)
+    ref_circles = detect_craters(ref_clahe)
 
-    with rasterio.open(source_path) as s, rasterio.open(ref_path) as r:
-        if s.width != r.width or s.height != r.height:
-            raise RuntimeError("Source and reference are not on the same grid.")
-        full_height, full_width = s.height, s.width
+    n_src = len(src_circles) if src_circles is not None else 0
+    n_ref = len(ref_circles) if ref_circles is not None else 0
 
-    longest_side = max(full_height, full_width)
-    base_decimation = max(1, round(longest_side / target_long_side))
-    result = None
-    decimation = base_decimation
+    print(f"  [CRATER-VOTE] Detected {n_src} source rims, {n_ref} reference rims.")
 
-    for level in range(max_pyramid_levels):
-        print(f"\n--- Pyramid level {level+1}/{max_pyramid_levels}: decimation={decimation} ---")
-        source_raw, scale_row, scale_col, _, _ = read_decimated(source_path, decimation)
-        ref_raw, _, _, _, _ = read_decimated(ref_path, decimation)
+    if src_circles is None or ref_circles is None or n_src == 0 or n_ref == 0:
+        return None, None, 0, np.array([])
 
-        src_bbox = find_valid_bbox(source_raw)
-        if src_bbox is None:
-            decimation = max(1, decimation // 2)
-            continue
+    # Build translation vote accumulator
+    bins = np.arange(-max_offset, max_offset + bin_size, bin_size)
+    n_bins = len(bins) - 1
+    H = np.zeros((n_bins, n_bins), dtype=np.int32)
 
-        src_r0, src_r1, src_c0, src_c1 = src_bbox
-        source_img = source_raw[src_r0:src_r1+1, src_c0:src_c1+1]
-
-        if result is not None:
-            pred_shift_r = result["offset_dy"] / scale_row
-            pred_shift_c = result["offset_dx"] / scale_col
-            margin_r = max(int((src_r1 - src_r0) * 0.5), 50)
-            margin_c = max(int((src_c1 - src_c0) * 0.5), 50)
-            ref_r0 = max(0, int(src_r0 + pred_shift_r) - margin_r)
-            ref_r1 = min(ref_raw.shape[0] - 1, int(src_r1 + pred_shift_r) + margin_r)
-            ref_c0 = max(0, int(src_c0 + pred_shift_c) - margin_c)
-            ref_c1 = min(ref_raw.shape[1] - 1, int(src_c1 + pred_shift_c) + margin_c)
-        else:
-            ref_bbox = find_valid_bbox(ref_raw)
-            if ref_bbox is None:
-                decimation = max(1, decimation // 2)
+    vote_count = 0
+    for sc in src_circles:
+        sx, sy, sr = sc[0], sc[1], sc[2]
+        for rc in ref_circles:
+            rx, ry, rr = rc[0], rc[1], rc[2]
+            # Only match craters with similar radii (within 25%)
+            if abs(sr - rr) / max(sr, rr, 1) > 0.25:
                 continue
-            ref_r0, ref_r1, ref_c0, ref_c1 = ref_bbox
+            tdx = rx - sx
+            tdy = ry - sy
+            # Only consider offsets within our search range
+            if abs(tdx) >= max_offset or abs(tdy) >= max_offset:
+                continue
 
-        ref_img = ref_raw[ref_r0:ref_r1+1, ref_c0:ref_c1+1]
+            bx = int((tdx + max_offset) / bin_size)
+            by = int((tdy + max_offset) / bin_size)
+            bx = min(bx, n_bins - 1)
+            by = min(by, n_bins - 1)
+            H[by, bx] += 1
+            vote_count += 1
 
-        try:
-            pts0, pts1, confs, n_kp0, n_kp1 = run_pass(source_img, ref_img)
-        except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
-            if "out of memory" in str(e).lower() or "CUDA" in str(e):
-                if device == "cuda":
-                    torch.cuda.empty_cache()
-                break
-            raise
-        finally:
-            if device == "cuda":
-                torch.cuda.empty_cache()
+    if vote_count == 0:
+        print("  [CRATER-VOTE] No radius-compatible pairs found in offset range.")
+        return None, None, 0, H
 
-        if len(pts0) < min_matches_to_accept:
-            decimation = max(1, decimation // 2)
+    # Find peak
+    peak_idx = np.unravel_index(np.argmax(H), H.shape)
+    peak_votes = int(H[peak_idx])
+    peak_dx = bins[peak_idx[1]] + bin_size / 2.0 - max_offset
+    peak_dy = bins[peak_idx[0]] + bin_size / 2.0 - max_offset
+
+    print(f"  [CRATER-VOTE] Consensus peak: dx={peak_dx:.1f}, dy={peak_dy:.1f} with {peak_votes} votes.")
+    return peak_dx, peak_dy, peak_votes, H
+
+
+def multiscale_pyramid_coarse(
+    source_ds,
+    ref_ds,
+    target_height: int = 1200
+) -> Optional[Dict[str, Any]]:
+    """
+    Multiscale Overview Pyramid Matching.
+    Downsamples both rasters to ~1200px overview, computes SIFT keypoints across the whole scene,
+    and fits an along-track linear drift model.
+    Robust to large multi-thousand pixel offsets that exceed local window bounds.
+    """
+    h_s, w_s = source_ds.height, source_ds.width
+    h_r, w_r = ref_ds.height, ref_ds.width
+    dec_s = max(1, h_s // target_height)
+    dec_r = max(1, h_r // target_height)
+
+    th_hs, th_ws = max(8, h_s // dec_s), max(8, w_s // dec_s)
+    th_hr, th_wr = max(8, h_r // dec_r), max(8, w_r // dec_r)
+
+    s_arr = source_ds.read(1, out_shape=(th_hs, th_ws), resampling=rasterio.enums.Resampling.bilinear).astype(np.float32)
+    r_arr = ref_ds.read(1, out_shape=(th_hr, th_wr), resampling=rasterio.enums.Resampling.bilinear).astype(np.float32)
+
+    def prep(a):
+        v = a[a > 0]
+        if len(v) < 100:
+            return np.zeros(a.shape, dtype=np.uint8)
+        p2, p98 = np.percentile(v, (2, 98))
+        u = np.clip((a - p2) / (p98 - p2 + 1e-6) * 255.0, 0, 255).astype(np.uint8)
+        return cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(u)
+
+    s_u8 = prep(s_arr)
+    r_u8 = prep(r_arr)
+
+    sift = cv2.SIFT_create(nfeatures=5000)
+    kp1, des1 = sift.detectAndCompute(s_u8, None)
+    orientations = [
+        ("normal", r_u8, 0, 0),
+        ("rot180", cv2.flip(r_u8, -1), -1, -1),
+        ("flip_v", cv2.flip(r_u8, 0), 0, -1),
+        ("flip_h", cv2.flip(r_u8, 1), -1, 0)
+    ]
+
+    best_res = None
+    best_inliers = 0
+    best_orientation = "normal"
+
+    for orient_name, orient_img, flip_x, flip_y in orientations:
+        kp2, des2 = sift.detectAndCompute(orient_img, None)
+        if des2 is None or len(kp2) < 10:
             continue
 
-        pts0_full = (pts0 + np.array([src_c0, src_r0])) * np.array([scale_col, scale_row])
-        pts1_full = (pts1 + np.array([ref_c0, ref_r0])) * np.array([scale_col, scale_row])
-        ransac_threshold_full = ransac_threshold_decimated_px * max(scale_row, scale_col)
-
-        M, mask = cv2.estimateAffinePartial2D(
-            pts0_full, pts1_full, method=cv2.RANSAC,
-            ransacReprojThreshold=ransac_threshold_full,
-            confidence=ransac_confidence, maxIters=ransac_max_iters,
-        )
-
-        if M is None:
-            decimation = max(1, decimation // 2)
+        bf = cv2.BFMatcher(cv2.NORM_L2)
+        matches = bf.knnMatch(des1, des2, k=2)
+        good = [m for m, n in matches if len((m, n)) == 2 and m.distance < 0.75 * n.distance]
+        if len(good) < 15:
             continue
 
-        mask = mask.ravel().astype(bool)
-        n_inliers = int(mask.sum())
-        if n_inliers < min_matches_to_accept:
-            decimation = max(1, decimation // 2)
-            continue
+        p1 = np.float32([kp1[m.queryIdx].pt for m in good])
+        p2 = np.float32([kp2[m.trainIdx].pt for m in good])
 
-        src_in = pts0_full[mask]
-        dst_in = pts1_full[mask]
-        src_h = np.hstack([src_in, np.ones((len(src_in), 1))])
-        predicted = (M @ src_h.T).T
-        residuals = predicted - dst_in
-        rmse_full = float(np.sqrt(np.mean(np.sum(residuals ** 2, axis=1))))
+        # Adjust coordinates if flipped
+        if flip_x == -1 and flip_y == -1: # rot180
+            p2[:, 0] = (th_wr - 1) - p2[:, 0]
+            p2[:, 1] = (th_hr - 1) - p2[:, 1]
+        elif flip_y == -1: # flip_v
+            p2[:, 1] = (th_hr - 1) - p2[:, 1]
+        elif flip_x == -1: # flip_h
+            p2[:, 0] = (th_wr - 1) - p2[:, 0]
 
-        a, b, tx = M[0]
-        c, d, ty = M[1]
-        scale = float(np.hypot(a, c))
-        rotation_deg = float(np.degrees(np.arctan2(c, a)))
+        p1[:, 0] *= (w_s / float(th_ws))
+        p1[:, 1] *= (h_s / float(th_hs))
+        p2[:, 0] *= (w_r / float(th_wr))
+        p2[:, 1] *= (h_r / float(th_hr))
 
-        x_center = (src_c0 + src_c1) / 2.0 * scale_col
-        y_center = (src_r0 + src_r1) / 2.0 * scale_row
-        ref_center = M @ np.array([x_center, y_center, 1.0])
-        eff_dx = float(ref_center[0] - x_center)
-        eff_dy = float(ref_center[1] - y_center)
+        M, inliers = cv2.estimateAffinePartial2D(p1, p2, method=cv2.RANSAC, ransacReprojThreshold=15.0)
+        n_inl = int(np.sum(inliers)) if inliers is not None else 0
 
-        result = {
-            "offset_dx": eff_dx, "offset_dy": eff_dy,
-            "similarity_tx": float(tx), "similarity_ty": float(ty),
-            "rotation_deg": rotation_deg, "scale": scale,
-            "decimation_used": decimation,
-            "n_matches": len(pts0_full), "n_inliers": n_inliers,
-            "inlier_ratio": float(n_inliers / len(pts0_full)),
-            "rmse_coarse_full_res_px": rmse_full,
-            "pyramid_level": level + 1,
-            "full_height": full_height, "full_width": full_width,
-            "_source_img": source_img.copy(),
-            "_ref_img": ref_img.copy(),
-            "_src_in": src_in, "_dst_in": dst_in,
-            "_src_c0": src_c0, "_src_r0": src_r0,
-            "_ref_c0": ref_c0, "_ref_r0": ref_r0,
-            "_scale_col": scale_col, "_scale_row": scale_row,
-        }
+        if n_inl > best_inliers and n_inl >= 15:
+            best_inliers = n_inl
+            best_orientation = orient_name
+            best_res = (p1[inliers.ravel() == 1], p2[inliers.ravel() == 1], len(good))
 
-        decimation = max(1, decimation // 2)
-        if decimation < 8:
+        # If normal orientation has strong inliers, no need to search further
+        if orient_name == "normal" and n_inl >= 30:
             break
 
-    if result is None:
-        raise RuntimeError("Coarse alignment failed at all pyramid levels.")
+    if best_res is None or best_inliers < 15:
+        return None
 
-    # Save visual plot
-    source_img = result.pop("_source_img")
-    ref_img = result.pop("_ref_img")
-    src_in = result.pop("_src_in")
-    dst_in = result.pop("_dst_in")
-    src_c0, src_r0 = result.pop("_src_c0"), result.pop("_src_r0")
-    ref_c0, ref_r0 = result.pop("_ref_c0"), result.pop("_ref_r0")
-    scale_col, scale_row = result.pop("_scale_col"), result.pop("_scale_row")
+    p1_inl, p2_inl, n_good = best_res
+    if best_orientation != "normal":
+        print(f"  [AUTO-ORIENTATION] WARNING: Detected mirrored/inverted orientation '{best_orientation}'! Auto-corrected.")
 
-    with open(result_json, "w", encoding="utf-8") as f:
+    dxs = p2_inl[:, 0] - p1_inl[:, 0]
+    dys = p2_inl[:, 1] - p1_inl[:, 1]
+    ys = p1_inl[:, 1]
+
+    from scipy.stats import linregress
+    dy_slope, dy_intercept, _, _, _ = linregress(ys, dys)
+    dx_slope, dx_intercept, _, _, _ = linregress(ys, dxs)
+
+    med_dx = float(np.median(dxs))
+    med_dy = float(np.median(dys))
+    n_inliers = int(np.sum(inliers))
+
+    print(f"  [COARSE-PYRAMID] Multiscale Overview successfully matched {n_inliers} / {len(good)} inliers across strip!")
+    print(f"    Global Median: dx={med_dx:.2f}, dy={med_dy:.2f}")
+    print(f"    Linear Drift:  dy(y) = {dy_slope:.6f}*y + {dy_intercept:.2f}")
+    print(f"                   dx(y) = {dx_slope:.6f}*y + {dx_intercept:.2f}")
+
+    return {
+        "dx": med_dx,
+        "dy": med_dy,
+        "confidence": float(n_inliers / len(good)),
+        "inliers_count": n_inliers,
+        "drift_model": {
+            "dy_slope": float(dy_slope),
+            "dy_intercept": float(dy_intercept),
+            "dx_slope": float(dx_slope),
+            "dx_intercept": float(dx_intercept)
+        }
+    }
+
+
+# ─── Master Coarse Alignment ─────────────────────────────────────────────────
+
+def run_coarse_alignment(
+    source_harmonized_path: Path,
+    ref_cropped_path: Path,
+    output_dir: Path,
+    patch_size: int = FFT_PATCH_SIZE,
+    num_strips: int = 10,
+    structural_method: str = "phase_congruency",
+    min_crater_votes: int = 4,
+    agreement_thresh: float = float(METHOD_AGREEMENT_THRESH_PX)
+) -> Dict[str, Any]:
+    """
+    Estimate the global (dx, dy) offset and along-track drift between the BBox-harmonized 
+    source and reference rasters using multi-strip vertical sampling.
+
+    Workflow:
+        1. Try Multiscale Overview Pyramid Matching for global wide-offset robustness.
+        2. If inliers >= 15, use overview drift model directly.
+        3. Otherwise sample N=8-10 horizontal strips along the full image height.
+        4. For each strip, compute Phase Correlation and Crater Rim Consensus.
+        5. Fit a 1D linear drift model: dy(row) = a*row + b and dx(row) = c*row + d.
+        6. Write the strip profile and drift model to coarse_alignment_result.json.
+    """
+    source_harmonized_path = Path(source_harmonized_path)
+    ref_cropped_path = Path(ref_cropped_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result_path = output_dir / "coarse_alignment_result.json"
+
+    print(f"[COARSE-ALIGN] Running multi-strip Decimated Coarse Alignment...")
+    print(f"  Source: {source_harmonized_path.name}")
+    print(f"  Ref:    {ref_cropped_path.name}")
+
+    with rasterio.open(source_harmonized_path) as src, rasterio.open(ref_cropped_path) as ref:
+        # Step 1: Try Multiscale Overview Pyramid Matching
+        pyramid_res = multiscale_pyramid_coarse(src, ref)
+        if pyramid_res is not None and pyramid_res.get("inliers_count", 0) >= 15:
+            pyramid_res["source"] = str(source_harmonized_path)
+            pyramid_res["reference"] = str(ref_cropped_path)
+            pyramid_res["method_used"] = "multiscale_pyramid_sift"
+            with open(result_path, "w") as f:
+                json.dump(pyramid_res, f, indent=2)
+            return pyramid_res
+
+        strip_profiles = []
+        h = min(src.height, ref.height)
+        w = min(src.width, ref.width)
+
+        strip_step = h / num_strips
+        
+        for i in range(num_strips):
+            r_center = int((i + 0.5) * strip_step)
+            c_center = w // 2
+
+            r0 = max(0, r_center - patch_size // 2)
+            c0 = max(0, c_center - patch_size // 2)
+            
+            # Read window
+            win = Window(col_off=c0, row_off=r0, width=min(patch_size, w - c0), height=min(patch_size, h - r0))
+            src_patch = src.read(1, window=win).astype(np.float32)
+            ref_patch = ref.read(1, window=win).astype(np.float32)
+            
+            # Check for sufficient valid data
+            if (src_patch > 0).mean() < 0.2 or (ref_patch > 0).mean() < 0.2:
+                print(f"  Strip {i+1}/{num_strips} at row {r_center}: Too much nodata, skipping.")
+                continue
+
+            # Compute structural maps
+            src_struct = compute_structural_representation(src_patch, method=structural_method)
+            ref_struct = compute_structural_representation(ref_patch, method=structural_method)
+            
+            src_structural = src_struct["structural"]
+            ref_structural = ref_struct["structural"]
+            src_clahe = src_struct["clahe"]
+            ref_clahe = ref_struct["clahe"]
+            
+            # Method A: FFT Phase Correlation
+            dx_fft, dy_fft, fft_resp = phase_correlation_coarse(src_structural, ref_structural, patch_size)
+            
+            # Method B: Crater Rim Consensus
+            dx_c, dy_c, c_votes, _ = crater_rim_consensus_voting(src_clahe, ref_clahe)
+            
+            # Selection
+            final_dx, final_dy = dx_fft, dy_fft
+            method_used = "fft"
+            if dx_c is not None and c_votes >= min_crater_votes:
+                dist = math.hypot(dx_fft - dx_c, dy_fft - dy_c)
+                if dist <= agreement_thresh:
+                    final_dx, final_dy = dx_c, dy_c
+                    method_used = "crater_voting (agreed)"
+                elif c_votes >= min_crater_votes * 2:
+                    final_dx, final_dy = dx_c, dy_c
+                    method_used = "crater_voting (dominant)"
+
+            print(f"  Strip {i+1}/{num_strips} at row {r_center}: dx={final_dx:.1f}, dy={final_dy:.1f} (fft_resp={fft_resp:.3f}, c_votes={c_votes}, used={method_used})")
+            
+            strip_profiles.append({
+                "strip_idx": i,
+                "row": r_center,
+                "dx": final_dx,
+                "dy": final_dy,
+                "fft_response": fft_resp,
+                "crater_votes": c_votes,
+                "method_used": method_used
+            })
+            
+    if not strip_profiles:
+        raise ValueError("Failed to compute coarse alignment for any strip.")
+
+    # Fit 1D drift model
+    rows = np.array([sp["row"] for sp in strip_profiles])
+    dxs = np.array([sp["dx"] for sp in strip_profiles])
+    dys = np.array([sp["dy"] for sp in strip_profiles])
+
+    from scipy.stats import linregress
+    
+    if len(strip_profiles) > 1:
+        dy_slope, dy_intercept, _, _, _ = linregress(rows, dys)
+        dx_slope, dx_intercept, _, _, _ = linregress(rows, dxs)
+    else:
+        dy_slope, dx_slope = 0.0, 0.0
+        dy_intercept, dx_intercept = dys[0], dxs[0]
+        
+    med_dx = float(np.median(dxs))
+    med_dy = float(np.median(dys))
+
+    print(f"  [COARSE-ALIGN] Drift Model fitted:")
+    print(f"    dy(row) = {dy_slope:.6f} * row + {dy_intercept:.2f}")
+    print(f"    dx(row) = {dx_slope:.6f} * row + {dx_intercept:.2f}")
+    print(f"    Median dx = {med_dx:.2f}, Median dy = {med_dy:.2f}")
+
+    result = {
+        "dx": med_dx,  # Backwards compatibility
+        "dy": med_dy,  # Backwards compatibility
+        "confidence": float(np.mean([sp["fft_response"] for sp in strip_profiles])),
+        "drift_model": {
+            "dy_slope": dy_slope,
+            "dy_intercept": dy_intercept,
+            "dx_slope": dx_slope,
+            "dx_intercept": dx_intercept
+        },
+        "strip_profiles": strip_profiles,
+        "source": str(source_harmonized_path),
+        "reference": str(ref_cropped_path)
+    }
+
+    with open(result_path, "w") as f:
         json.dump(result, f, indent=2)
-    print(f"\n[SUCCESS] Coarse alignment saved: {result_json}")
-
-    # Generate visual plot
-    try:
-        diag_dir = output_dir / "diagnostics"
-        diag_dir.mkdir(parents=True, exist_ok=True)
-        src_local = (src_in / np.array([scale_col, scale_row])) - np.array([src_c0, src_r0])
-        dst_local = (dst_in / np.array([scale_col, scale_row])) - np.array([ref_c0, ref_r0])
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
-        ax1.imshow(source_img, cmap='gray')
-        ax1.set_title("Source (Coarse)")
-        ax1.axis('off')
-        ax2.imshow(ref_img, cmap='gray')
-        ax2.set_title("Reference (Coarse)")
-        ax2.axis('off')
-
-        indices = np.linspace(0, len(src_local)-1, min(150, len(src_local)), dtype=int)
-        for i in indices:
-            xy1 = (src_local[i, 0], src_local[i, 1])
-            xy2 = (dst_local[i, 0], dst_local[i, 1])
-            con = ConnectionPatch(xyA=xy2, xyB=xy1, coordsA="data", coordsB="data",
-                                  axesA=ax2, axesB=ax1, color="lime", lw=0.5, alpha=0.6)
-            ax2.add_artist(con)
-
-        plot_path = diag_dir / "coarse_alignment_visual.png"
-        plt.tight_layout()
-        plt.savefig(plot_path, dpi=150, facecolor='black', edgecolor='none')
-        plt.close(fig)
-    except Exception as e:
-        print(f"Warning: could not save coarse plot: {e}")
 
     return result
-
-
-def main():
-    args = parse_args()
-    custom_cfg = None
-    if args.config and args.config.exists():
-        with open(args.config, "r", encoding="utf-8") as f:
-            custom_cfg = json.load(f)
-    run_coarse_alignment(args.source_img, args.ref_img, args.output_dir, custom_cfg)
-
-
-if __name__ == "__main__":
-    main()

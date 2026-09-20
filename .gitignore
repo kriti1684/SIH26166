@@ -72,7 +72,7 @@ $RECYCLE.BIN/
 *.msk
 
 # ------------------------------------------------------------------------------
-# 5. Pipeline Caches, Intermediate & Upload Dirs
+# 5. Pipeline Caches, Intermediate & Run Output Dirs
 # ------------------------------------------------------------------------------
 normalized/
 preprocessed_cache/
@@ -81,8 +81,8 @@ temp_kernels/
 runs/
 uploads/
 **/uploads/
-" --include=kernels"/
-\ --include=kernels/
+projects/*/normalized/
+projects/*/diagnostics/
 
 # ------------------------------------------------------------------------------
 # 6. Runtime Logs, Temporary Output & Tile Dumps
@@ -111,8 +111,18 @@ out.txt
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-# 9. Project Run Outputs (Keep folder structure, ignore bulky outputs)
+# 9. Project Run Outputs (keep folder structure, ignore bulky outputs)
 # ------------------------------------------------------------------------------
 projects/*/*_registered.tif
 projects/*/diagnostics/*.png
+projects/*/normalized/*.tif
 !projects/**/.gitkeep
+
+# ------------------------------------------------------------------------------
+# 10. Old / merged directories & external submodules
+# ------------------------------------------------------------------------------
+data/spice_kernels/
+legacy_src_v1/
+SIH26166/
+scratch/
+

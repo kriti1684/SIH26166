@@ -1,0 +1,76 @@
+[
+  {
+    "test_id": "RED-01",
+    "name": "Deceptive Twin Crater Trap",
+    "attack_vector": "Visually identical impact craters at disparate lunar locations (-65\u00b0S vs -78\u00b0S) with matching rim textures.",
+    "raw_matcher_result": "ACCEPTED (24 circular rim feature matches, raw confidence: 0.84)",
+    "physics_verification_verdict": "REJECTED",
+    "final_decision": "CORRECTLY_REJECTED",
+    "spatial_entropy": 0.497,
+    "convex_hull_coverage_pct": 2.73,
+    "illumination_score": 0.85,
+    "scale_score": 0.98,
+    "composite_confidence": 0.386,
+    "rejection_reasons": [
+      "Spatial Entropy Warning: Matches concentrated on single circular rim (H=0.50)",
+      "Geometric Reprojection Residual: Exceeded strict planar tolerance (residual > 6.2 px)",
+      "Non-Unique Projective Mapping: Circular crater symmetry creates 360\u00b0 rotational ambiguity"
+    ],
+    "explanation": "Standard visual descriptors match symmetrical rim texture, but geometric residual gating and spatial distribution analysis successfully detect the false correlation."
+  },
+  {
+    "test_id": "RED-02",
+    "name": "Opposite-Sun Shadow Inversion Illusion",
+    "attack_vector": "180\u00b0 Solar Azimuth shift inverts lunar crater shadows, reversing bright and dark facets.",
+    "raw_matcher_result": "ACCEPTED / AMBIGUOUS (Spurious edge gradient alignment on opposing rim contours)",
+    "physics_verification_verdict": "REJECTED",
+    "final_decision": "CORRECTLY_REJECTED",
+    "spatial_entropy": 0.62,
+    "convex_hull_coverage_pct": 38.5,
+    "illumination_score": 0.2,
+    "scale_score": 0.98,
+    "composite_confidence": 0.22,
+    "rejection_reasons": [
+      "Solar Azimuth Conflict: Delta Azimuth dAz=180.0 deg indicates direct shadow polarity reversal",
+      "Illumination Divergence: Sunlight vector opposition causes illuminated crater rims to match shadowed inner walls"
+    ],
+    "explanation": "Solar ephemeris verification detects that the light source has flipped 180\u00b0, vetoing false edge alignments before warping."
+  },
+  {
+    "test_id": "RED-03",
+    "name": "Degenerate Clustered Boulder Trap",
+    "attack_vector": "25 tightly packed keypoints on a single 15x15 px boulder patch with zero frame-wide distribution.",
+    "raw_matcher_result": "ACCEPTED (25/25 inliers, 100% inlier ratio, raw confidence: 0.96)",
+    "physics_verification_verdict": "REJECTED",
+    "final_decision": "CORRECTLY_REJECTED",
+    "spatial_entropy": -0.0,
+    "convex_hull_coverage_pct": 0.006,
+    "illumination_score": 0.88,
+    "scale_score": 0.98,
+    "composite_confidence": 0.291,
+    "rejection_reasons": [
+      "Spatial Entropy Collapse: All inliers concentrated in a single grid cell (H=-0.000)",
+      "Convex Hull Area Anomaly: Match points cover only 0.006% of frame (< 4.0% minimum threshold)",
+      "Degenerate Support: Insufficient baseline for full-image projective transformation"
+    ],
+    "explanation": "Visual matchers report 100% inlier ratio on a single cluster. Spatial distribution entropy gating successfully flags and rejects the degenerate cluster."
+  },
+  {
+    "test_id": "RED-04",
+    "name": "Featureless Mare Noise Correlation",
+    "attack_vector": "Smooth basaltic mare regions with low contrast and sensor shot noise producing spurious candidate matches.",
+    "raw_matcher_result": "UNCERTAIN (Weak feature response, low candidate match density)",
+    "physics_verification_verdict": "REJECTED",
+    "final_decision": "CORRECTLY_REJECTED",
+    "spatial_entropy": 0.396,
+    "convex_hull_coverage_pct": 0.88,
+    "illumination_score": 0.55,
+    "scale_score": 0.5,
+    "composite_confidence": 0.22,
+    "rejection_reasons": [
+      "Insufficient Inliers: Less than 4 stable correspondences in low-contrast regolith (N=3)",
+      "Matrix Condition Number Instability: Transformation solution degenerate"
+    ],
+    "explanation": "The pipeline rejects low-contrast spurious noise matches before any transformation can corrupt the registered product."
+  }
+]

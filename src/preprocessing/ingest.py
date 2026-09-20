@@ -75,28 +75,87 @@ def load_raster(file_path: Path) -> Tuple[np.ndarray, rasterio.DatasetReader]:
     if suffix in ('.h5', '.hdf5'):
         return _load_iirs_h5(file_path)
 
-    # PDS4 XML label — rasterio can open via GDAL's PDS4 driver ───────────
-    # Try the xml directly; GDAL resolves the linked .img automatically.
+    # PDS4 XML / raw image binary loader ──────────────────────────────────
+    xml_path = file_path if suffix == '.xml' else file_path.with_suffix('.xml')
+    if not xml_path.exists():
+        xml_path = file_path.with_suffix('.XML')
+
+    if xml_path.exists():
+        # Try direct rasterio open first
+        try:
+            ds = rasterio.open(file_path)
+            arr = ds.read(1)
+            return arr, ds
+        except Exception:
+            pass
+
+        # Native PDS4 XML + binary loader
+        try:
+            return _load_pds4_raw(xml_path, file_path if suffix != '.xml' else None)
+        except Exception as e:
+            print(f"[INGEST] Native PDS4 loader warning: {e}")
+
+    # PDS3 / standard raster loader via rasterio
     try:
         ds = rasterio.open(file_path)
-        arr = ds.read(1).astype(np.uint16)
+        arr = ds.read(1)
         return arr, ds
-    except rasterio.errors.RasterioIOError:
-        pass
+    except Exception as e:
+        raise ValueError(f"Could not load raster from {file_path}: {e}")
 
-    # If the XML failed, look for a sibling .img / .IMG ─────────────────────
-    if suffix == '.xml':
-        for ext in ('.img', '.IMG', '.DAT', '.dat'):
-            img_path = file_path.with_suffix(ext)
-            if img_path.exists():
-                ds = rasterio.open(img_path)
-                arr = ds.read(1).astype(np.uint16)
-                return arr, ds
-        raise FileNotFoundError(
-            f"Could not find a matching image file for PDS4 label: {file_path}"
-        )
 
-    raise ValueError(f"Unsupported file format: {suffix}")
+def _load_pds4_raw(xml_path: Path, img_path: Optional[Path] = None) -> Tuple[np.ndarray, None]:
+    """
+    Directly parse PDS4 XML metadata and load raw binary raster into a NumPy array.
+    """
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    ns = {'pds': 'http://pds.nasa.gov/pds4/pds/v1'}
+
+    # If image path not provided, search in same folder
+    if img_path is None or not img_path.exists():
+        file_name_el = root.find('.//pds:File/pds:file_name', ns)
+        if file_name_el is not None and (xml_path.parent / file_name_el.text.strip()).exists():
+            img_path = xml_path.parent / file_name_el.text.strip()
+        else:
+            for ext in ('.img', '.IMG', '.dat', '.DAT'):
+                cand = xml_path.with_suffix(ext)
+                if cand.exists():
+                    img_path = cand
+                    break
+
+    if img_path is None or not img_path.exists():
+        raise FileNotFoundError(f"Could not find matching image data file for {xml_path}")
+
+    lines_el = root.find('.//pds:Axis_Array[pds:axis_name="Line"]/pds:elements', ns)
+    samples_el = root.find('.//pds:Axis_Array[pds:axis_name="Sample"]/pds:elements', ns)
+    if lines_el is None or samples_el is None:
+        raise ValueError(f"Could not find Line/Sample dimensions in {xml_path}")
+
+    lines = int(lines_el.text.strip())
+    samples = int(samples_el.text.strip())
+
+    offset_el = root.find('.//pds:Array_2D_Image/pds:offset', ns)
+    offset = int(offset_el.text.strip()) if offset_el is not None else 0
+
+    dtype_el = root.find('.//pds:Element_Array/pds:data_type', ns)
+    dtype_str = dtype_el.text.strip() if dtype_el is not None else 'UnsignedByte'
+
+    dtype_map = {
+        'UnsignedByte': np.uint8,
+        'Byte': np.int8,
+        'UnsignedMSB2': '>u2',
+        'SignedMSB2': '>i2',
+        'UnsignedLSB2': '<u2',
+        'SignedLSB2': '<i2',
+        'IEEE754MSBSingle': '>f4',
+        'IEEE754LSBSingle': '<f4',
+    }
+    np_dtype = dtype_map.get(dtype_str, np.uint8)
+
+    print(f"[INGEST] Loading PDS4 binary: {img_path.name} ({lines}x{samples}, offset={offset}, dtype={dtype_str})")
+    arr = np.memmap(img_path, dtype=np_dtype, mode='r', offset=offset, shape=(lines, samples))
+    return np.array(arr), None
 
 
 def _load_iirs_h5(h5_path: Path) -> Tuple[np.ndarray, None]:
@@ -335,4 +394,4 @@ def write_raw_tif(array: np.ndarray, out_path: Path, nodata: int = 0) -> None:
         compress='lzw',
     ) as dst:
         dst.write(array, 1)
-    print(f"[INGEST] Wrote raw (unprojected) TIF → {out_path}")
+    print(f"[INGEST] Wrote raw (unprojected) TIF -> {out_path}")
