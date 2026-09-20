@@ -8,9 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import cv2
 import numpy as np
-import rasterio
 
-from src.preprocessing.structural import compute_structural_representation, load_and_compute_structural
+from src.preprocessing.structural import compute_structural_representation
 from src.registration.coarse_alignment import run_coarse_alignment, phase_correlation_coarse, crater_rim_consensus_voting
 
 # ─── Unit Tests ──────────────────────────────────────────────────────────────
@@ -130,7 +129,7 @@ def test_full_coarse_alignment_on_real_data():
 
     result = run_coarse_alignment(src_p, ref_p, out_dir)
 
-    print(f"\n  === REAL DATA COARSE ALIGNMENT RESULT ===")
+    print("\n  === REAL DATA COARSE ALIGNMENT RESULT ===")
     print(f"  dx={result['dx']:.2f} px, dy={result['dy']:.2f} px")
     print(f"  Confidence: {result['confidence']:.2f}")
     print(f"  Method Used: {result['method_used']}")

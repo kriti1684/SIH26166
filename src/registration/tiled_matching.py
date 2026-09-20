@@ -436,13 +436,8 @@ def run_tiled_matching(
             if is_src_file:
                 win_src = Window(col_off=x0, row_off=y0, width=x1 - x0, height=y1 - y0)
                 raw_src = src_ds.read(1, window=win_src).astype(np.float32)
-                if compute_structural_representation is not None:
-                    src_patch = compute_structural_representation(raw_src, method=structural_method)["structural"]
-                else:
-                    src_patch = raw_src
             else:
                 raw_src = src_input[y0:y1, x0:x1]
-                src_patch = raw_src
             
             # Predict reference center
             r_center = (y0 + y1) / 2.0

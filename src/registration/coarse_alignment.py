@@ -351,7 +351,7 @@ def run_coarse_alignment(
     output_dir.mkdir(parents=True, exist_ok=True)
     result_path = output_dir / "coarse_alignment_result.json"
 
-    print(f"[COARSE-ALIGN] Running multi-strip Decimated Coarse Alignment...")
+    print("[COARSE-ALIGN] Running multi-strip Decimated Coarse Alignment...")
     print(f"  Source: {source_harmonized_path.name}")
     print(f"  Ref:    {ref_cropped_path.name}")
 
@@ -448,7 +448,7 @@ def run_coarse_alignment(
     med_dx = float(np.median(dxs))
     med_dy = float(np.median(dys))
 
-    print(f"  [COARSE-ALIGN] Drift Model fitted:")
+    print("  [COARSE-ALIGN] Drift Model fitted:")
     print(f"    dy(row) = {dy_slope:.6f} * row + {dy_intercept:.2f}")
     print(f"    dx(row) = {dx_slope:.6f} * row + {dx_intercept:.2f}")
     print(f"    Median dx = {med_dx:.2f}, Median dy = {med_dy:.2f}")

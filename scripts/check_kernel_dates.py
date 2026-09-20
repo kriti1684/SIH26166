@@ -1,4 +1,4 @@
-heimport os
+import os
 import glob
 import spiceypy as spice
 

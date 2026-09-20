@@ -7,9 +7,9 @@ and saving memory and compute time.
 """
 
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 import rasterio
-from rasterio.windows import Window, transform as window_transform
+from rasterio.windows import Window
 from rasterio.warp import transform_bounds
 
 
@@ -154,7 +154,7 @@ def crop_window_to_geotiff(
                     dst.write(data, 1)
                 else:
                     dst.write(data)
-        except Exception as e:
+        except Exception:
             if output_tif.exists():
                 try:
                     with rasterio.open(output_tif, "r+") as dst:

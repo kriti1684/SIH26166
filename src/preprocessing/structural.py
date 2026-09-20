@@ -29,7 +29,7 @@ Outputs per image:
 import numpy as np
 import cv2
 from pathlib import Path
-from typing import Tuple, Optional, Dict
+from typing import Optional, Dict
 import rasterio
 from rasterio.windows import Window
 

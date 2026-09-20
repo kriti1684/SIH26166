@@ -9,7 +9,7 @@ import numpy as np
 import cv2
 import math
 
-from src.registration.tiled_matching import get_tile_bounds, compute_spatial_entropy, match_tile
+from src.registration.tiled_matching import get_tile_bounds, compute_spatial_entropy
 from src.registration.subpixel_ecc import refine_matches_subpixel
 from src.registration.hybrid_transform import HybridTransform
 

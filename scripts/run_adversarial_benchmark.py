@@ -7,14 +7,12 @@ against deceptive correspondence traps:
   4. RED-04: Featureless Mare Noise (low-contrast noise correlation)
 """
 
-import os
 import sys
 import json
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Dict, List, Any
+from dataclasses import dataclass
+from typing import List
 import numpy as np
-import cv2
 
 # Ensure clean UTF-8 console output on Windows
 if sys.stdout.encoding != 'utf-8':
@@ -87,14 +85,9 @@ class AdversarialBenchmarkRunner:
         theta = np.linspace(0, 2 * np.pi, 24, endpoint=False)
         radius = 150.0
         pts_src = np.column_stack([800 + radius * np.cos(theta), 800 + radius * np.sin(theta)])
-        # Target has non-rigid distorted offsets that violate affine homography
-        distort = np.random.normal(0, 8.5, pts_src.shape)
-        pts_tgt = pts_src + distort
-
         entropy = compute_spatial_entropy(pts_src, image_shape, grid_size=(4, 4))
         coverage = compute_convex_hull_coverage(pts_src, total_area)
         _, _, scale_score = compute_scale_consistency(0.25, 0.765, 0.35)
-        _, illum_score = 0.0, 0.85
 
         reasons = [
             f"Spatial Entropy Warning: Matches concentrated on single circular rim (H={entropy:.2f})",
@@ -274,7 +267,7 @@ class AdversarialBenchmarkRunner:
             json.dump(data, f, indent=2)
 
         print("\n" + "=" * 75)
-        print(f"[SUCCESS] Adversarial Benchmark Suite Completed!")
+        print("[SUCCESS] Adversarial Benchmark Suite Completed!")
         print(f"  - Markdown Report: {md_path}")
         print(f"  - JSON Report:     {json_path}")
         print("=" * 75)

@@ -21,7 +21,6 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -35,14 +34,12 @@ import numpy as np
 import rasterio
 
 # Import src components
-from src.preprocessing.bounding_overlap import compute_geographic_overlap
 from src.preprocessing.scale_harmonizer import crop_and_harmonize_overlap
 from src.preprocessing.band_selector import extract_or_synthesize_band
-from src.preprocessing.structural import load_and_compute_structural
 from src.registration.coarse_alignment import run_coarse_alignment
 from src.registration.tiled_matching import run_tiled_matching
 from src.registration.subpixel_ecc import refine_matches_subpixel
-from src.registration.hybrid_transform import compute_hybrid_transform, HybridTransform
+from src.registration.hybrid_transform import HybridTransform
 from src.registration.warp import warp_image_subpixel
 from src.registration.verifier import run_verification
 
@@ -113,7 +110,7 @@ def run_pipeline(args):
     diag_dir = out_dir / "diagnostics"
     diag_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f">> RUN CONFIGURATION:")
+    print(">> RUN CONFIGURATION:")
     print(f"  * Source:     {args.source} [{args.sensor_src}]")
     print(f"  * Reference:  {args.reference} [{args.sensor_ref}]")
     print(f"  * Output Dir: {out_dir}")
@@ -159,8 +156,6 @@ def run_pipeline(args):
     # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print("\n[STAGE 2/5] Modality-Invariant Structural Extraction & Coarse Alignment...")
-
-    coarse_json = out_dir / "coarse_alignment_result.json"
 
     # Run dual-method coarse alignment
     coarse_res = run_coarse_alignment(
@@ -303,6 +298,8 @@ def run_pipeline(args):
     print(f"\n[SUCCESS] ALL PIPELINE PHASES COMPLETED SUCCESSFULLY IN {total_elapsed:.2f}s!")
     print(f"  Final Sub-Pixel Product: {registered_tif}")
     print(f"  Diagnostics Directory:   {diag_dir}")
+    if isinstance(metrics, dict) and "verdict" in metrics:
+        print(f"  Verification Verdict:    {metrics['verdict']}")
     print("=" * 75)
     return 0
 

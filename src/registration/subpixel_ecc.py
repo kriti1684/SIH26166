@@ -10,9 +10,8 @@ Supports both in-memory arrays and streaming GeoTIFF windowed patch reads.
 """
 
 import csv
-import math
 from pathlib import Path
-from typing import Tuple, List, Dict, Any, Union
+from typing import Dict, Any, Union
 
 import cv2
 import numpy as np

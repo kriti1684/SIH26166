@@ -4,7 +4,6 @@ into the LunarSynapse SQLite database and image storage so the React/Vite dashbo
 displays real satellite co-registration results with multi-pillar physics radar charts.
 """
 
-import sys
 import json
 import sqlite3
 import shutil

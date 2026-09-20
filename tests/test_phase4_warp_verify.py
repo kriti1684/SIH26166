@@ -2,7 +2,6 @@
 Phase 4 Integration Test Suite: Sub-Pixel Warping, Multi-Pillar Verification & Master Pipeline.
 Validates warp.py, verifier.py, and run_pipeline.py.
 """
-import math
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -13,9 +12,8 @@ import rasterio
 from rasterio.transform import from_origin
 
 from src.registration.hybrid_transform import HybridTransform
-from src.registration.warp import warp_image_subpixel, generate_composite_overlay
-from src.registration.verifier import run_verification, compute_subpixel_residuals
-from run_pipeline import run_pipeline, parse_args
+from src.registration.warp import warp_image_subpixel
+from src.registration.verifier import run_verification
 
 
 def create_synthetic_textured_geotiff(path: Path, width: int = 300, height: int = 300) -> Path:

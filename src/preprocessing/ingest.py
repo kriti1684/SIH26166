@@ -16,7 +16,6 @@ Usage:
   from src.preprocessing.ingest import load_raster, inspect_projection, extract_pds4_bounds
 """
 
-import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
@@ -24,7 +23,6 @@ from typing import Optional, Tuple, Dict, Any
 import numpy as np
 import rasterio
 from rasterio.crs import CRS
-from rasterio.transform import from_bounds
 
 
 # ── Namespaces used in ISRO PDS4 XML labels ─────────────────────────────────

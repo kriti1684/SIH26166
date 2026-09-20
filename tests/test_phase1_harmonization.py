@@ -6,8 +6,7 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from src.preprocessing.bounding_overlap import compute_geographic_overlap, crop_window_to_geotiff
-from src.preprocessing.scale_harmonizer import crop_and_harmonize_overlap
+from src.preprocessing.bounding_overlap import compute_geographic_overlap
 from src.preprocessing.band_selector import (
     get_iirs_band_wavelength,
     compute_band_entropy,

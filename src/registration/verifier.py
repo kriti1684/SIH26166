@@ -14,9 +14,8 @@ Computes rigorous scientific quality control metrics for registered lunar imager
 import argparse
 import json
 import math
-import os
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, List, Union
+from typing import Dict, Any, Optional, Tuple, Union
 
 import cv2
 import matplotlib
@@ -25,7 +24,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import rasterio
-from rasterio.windows import Window
 from rasterio.enums import Resampling
 
 try:
@@ -297,7 +295,7 @@ def generate_overview_visualizations(
         comp[:, :, 1] = r_u8[:, :w_min]  # Green: Reference
         comp[:, :, 0] = s_u8[:, :w_min]  # Blue
         cv2.imwrite(str(diag_dir / "overview_false_color.png"), comp)
-        print(f"  [VERIFY] Saved overview_side_by_side.png and overview_false_color.png")
+        print("  [VERIFY] Saved overview_side_by_side.png and overview_false_color.png")
     except Exception as e:
         print(f"  [VERIFY] Warning: Could not generate overview plots: {e}")
 
@@ -323,7 +321,7 @@ def run_verification(
     diag_dir = output_dir / "diagnostics"
     diag_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n[VERIFY] Running Multi-Pillar Scientific Verification...")
+    print("\n[VERIFY] Running Multi-Pillar Scientific Verification...")
     print(f"  Registered Product: {registered_path.name}")
     print(f"  Reference Image:    {ref_path.name}")
 
@@ -483,9 +481,9 @@ def run_verification(
     # Generate overview side-by-side and false color composite
     generate_overview_visualizations(registered_path, ref_path, diag_dir)
 
-    print(f"\n==================================================================")
-    print(f"            MULTI-PILLAR VERIFICATION FINAL SUMMARY               ")
-    print(f"==================================================================")
+    print("\n==================================================================")
+    print("            MULTI-PILLAR VERIFICATION FINAL SUMMARY               ")
+    print("==================================================================")
     print(f"  Final Verdict:                {verdict}")
     print(f"  Scientific Confidence:        {composite_confidence*100:.1f}%")
     print(f"  Sub-Pixel Reprojection RMSE:  {res_stats['rmse_px']:.4f} px (Target: < {target_rmse_threshold} px)")
@@ -494,7 +492,7 @@ def run_verification(
     print(f"  Convex Hull Coverage:         {convex_hull_cov*100:.1f}%")
     print(f"  Inlier Match Count:           {res_stats['inlier_count']} / {res_stats['total_count']} ({res_stats['inlier_ratio']*100:.1f}%)")
     print(f"  Metrics File:                 {metrics_json_path}")
-    print(f"==================================================================\n")
+    print("==================================================================\n")
 
     return metrics_report
 

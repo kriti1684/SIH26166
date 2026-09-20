@@ -83,7 +83,7 @@ def crop_and_harmonize_overlap(
         except Exception:
             pass
 
-    print(f"[BBOX-HARMONIZE] Analyzing geographic overlap between:")
+    print("[BBOX-HARMONIZE] Analyzing geographic overlap between:")
     print(f"  Source: {source_path.name}")
     print(f"  Ref:    {ref_path.name}")
 
@@ -96,14 +96,13 @@ def crop_and_harmonize_overlap(
     ref_crs = overlap_info["overlap_crs"]
 
     # 1. Crop Reference raster to the exact overlap window
-    print(f"[BBOX-HARMONIZE] Step 1: Cropping Reference to bounding box...")
+    print("[BBOX-HARMONIZE] Step 1: Cropping Reference to bounding box...")
     crop_window_to_geotiff(ref_path, overlap_info["ref_window"], ref_cropped_path)
 
     with rasterio.open(ref_cropped_path) as ref_crop_ds:
         target_w = ref_crop_ds.width
         target_h = ref_crop_ds.height
         target_crs = ref_crop_ds.crs.to_wkt()
-        target_transform = ref_crop_ds.transform
 
     # 2. Warp Source raster directly onto the cropped Reference grid
     print(f"[BBOX-HARMONIZE] Step 2: Warping Source onto cropped Reference grid ({target_w}x{target_h})...")
@@ -125,7 +124,7 @@ def crop_and_harmonize_overlap(
     gdal.Warp(str(source_cammap_path), str(source_path), options=warp_options)
 
     # 3. Step 3: Automatic Physical Orientation Verification & Rectification
-    print(f"[BBOX-HARMONIZE] Step 3: Verifying North-Up physical orientation alignment...")
+    print("[BBOX-HARMONIZE] Step 3: Verifying North-Up physical orientation alignment...")
     detected_orientation = verify_and_rectify_relative_orientation(source_cammap_path, ref_cropped_path)
 
     # 4. Save comprehensive harmonization metadata
@@ -147,7 +146,7 @@ def crop_and_harmonize_overlap(
     with open(meta_json_path, "w") as f:
         json.dump(metadata, f, indent=2)
 
-    print(f"[BBOX-HARMONIZE] [OK] Scale and grid harmonization complete:")
+    print("[BBOX-HARMONIZE] [OK] Scale and grid harmonization complete:")
     print(f"  Grid Size: {target_w} x {target_h} px")
     print(f"  Mutual Overlap: Source {overlap_info['src_overlap_pct']:.2f}%, Ref {overlap_info['ref_overlap_pct']:.2f}%")
     print(f"  Orientation: {detected_orientation.upper()}")

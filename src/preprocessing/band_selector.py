@@ -23,7 +23,7 @@ Physics & Spectral Theory:
 """
 
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, Dict, Any
 import numpy as np
 import rasterio
 from rasterio.windows import Window
@@ -123,7 +123,7 @@ def select_best_band_for_reference(
                     "spectral_dist_nm": spectral_dist,
                     "composite_score": composite_score
                 })
-            except Exception as e:
+            except Exception:
                 continue
 
         if not scores:
@@ -138,7 +138,7 @@ def select_best_band_for_reference(
         scores.sort(key=lambda x: x["composite_score"], reverse=True)
         best = scores[0]
 
-        print(f"[IIRS-BAND-SELECTOR] [OK] Optimal band selected:")
+        print("[IIRS-BAND-SELECTOR] [OK] Optimal band selected:")
         print(f"  Selected Band: {best['band_1idx']} (Center wavelength = {best['wavelength_nm']:.1f} nm)")
         print(f"  Entropy: {best['entropy']:.2f}, Std: {best['std']:.2f}, Score: {best['composite_score']:.2f}")
 

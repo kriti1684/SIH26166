@@ -1,7 +1,5 @@
 import os
-import sys
 import argparse
-import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import numpy as np
@@ -125,13 +123,13 @@ def _warp_with_gcps(raw_tif: Path, out_tif: Path, gcps_geo: list, width: int, he
     # Assign GCPs in GEOGRAPHIC Moon CRS (degrees).
     # This is the critical fix: the GCP coordinates are in lat/lon degrees,
     # so outputSRS must be the GEOGRAPHIC CRS, not the projected (metre) CRS.
-    vrt_ds = gdal.Translate(
+    gdal.Translate(
         temp_vrt, ds,
         format='VRT',
         outputSRS=GEOG_MOON_WKT,   # <-- FIXED: was TARGET_CRS_WKT (metres)
         GCPs=gdal_gcps,
     )
-    vrt_ds = ds = None
+    ds = None
 
     threads_opt = 'ALL_CPUS' if num_threads == 0 else str(num_threads)
     warp_opts = gdal.WarpOptions(
@@ -148,8 +146,7 @@ def _warp_with_gcps(raw_tif: Path, out_tif: Path, gcps_geo: list, width: int, he
         warpOptions=[f'NUM_THREADS={threads_opt}'],
         multithread=True,
     )
-    warped_ds = gdal.Warp(str(out_tif), temp_vrt, options=warp_opts)
-    warped_ds = None
+    gdal.Warp(str(out_tif), temp_vrt, options=warp_opts)
 
     if os.path.exists(temp_vrt):
         os.remove(temp_vrt)
@@ -330,13 +327,13 @@ def apply_gcps_gdal(xml_file, raw_tif, out_tif, gcps):
     temp_vrt = str(out_tif).replace('.tif', '_gcp.vrt')
     print(f"[GDAL] Creating VRT with {len(gdal_gcps)} SPICE GCPs...")
     ds = gdal.Open(str(raw_tif))
-    vrt_ds = gdal.Translate(
+    gdal.Translate(
         temp_vrt, ds,
         format='VRT',
         outputSRS=GEOG_MOON_WKT,   # GCPs are in lat/lon degrees
         GCPs=gdal_gcps,
     )
-    vrt_ds = ds = None
+    ds = None
 
     print(f"[GDAL] Warping (TPS={use_tps})...")
     if use_tps:
@@ -362,8 +359,7 @@ def apply_gcps_gdal(xml_file, raw_tif, out_tif, gcps):
             multithread=True,
         )
 
-    warped_ds = gdal.Warp(str(out_tif), temp_vrt, options=warp_opts)
-    warped_ds = None
+    gdal.Warp(str(out_tif), temp_vrt, options=warp_opts)
 
     if os.path.exists(temp_vrt):
         os.remove(temp_vrt)

@@ -12,9 +12,8 @@ a sub-pixel registered GeoTIFF.
 """
 
 import argparse
-import json
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 import cv2
 import numpy as np
@@ -168,7 +167,7 @@ def warp_image_subpixel(
 
         try:
             writer_ctx = rasterio.open(output_path, "w", **profile)
-        except Exception as e:
+        except Exception:
             if output_path.exists():
                 try:
                     writer_ctx = rasterio.open(output_path, "r+")
