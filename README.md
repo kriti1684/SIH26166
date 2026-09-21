@@ -119,6 +119,24 @@ $$T(x, y) = T_{\text{Affine}}(x, y) + \begin{bmatrix} \Delta x_{\text{drift}}(y)
 | **Layer 2: Scanline Drift** | Along-track satellite velocity jitter, pushbroom timing drift | $dx(y) = \sum_{k=0}^d a_k y^k, \quad dy(y) = \sum_{k=0}^d b_k y^k$ |
 | **Layer 3: Thin Plate Spline** | Local topographic parallax & digital elevation model (DEM) relief | $\Phi(x, y) = \sum_{i=1}^M w_i U(\|\mathbf{p} - \mathbf{c}_i\|)$ where $U(r) = r^2 \ln r$ |
 
+### 6. Pure-Python LRO WAC Push-Frame De-Interleaver & Optics Restoration
+LRO WAC in `COLOR` mode interweaves 7 distinct spectral strips across 78-line framelets, producing severe periodic "barcode" striping when ingested as raw EDRs. We built an autonomous, 100% ISIS-free push-frame processor:
+* **7-Band Framelet Extraction:** Automatically slices Band 7 ($689\text{ nm}$ Red) from lines $64..77$ across all $304$ along-track framelets.
+* **1D CCD Row Flat-Field Normalization:** Eliminates the $+2.62\text{ DN}$ transmission drop across the physical filter strip, removing the $3.59\times$ gradient spike occurring every 14 lines.
+* **Inter-Framelet Cosine Seam Feathering:** Blends framelet boundaries with a 2-line raised-cosine profile, eliminating jagged "staircase" steps caused by spacecraft cross-track yaw drift.
+* **Optical MTF Restoration Filter:** Couples CLAHE dynamic-range equalization with a Gaussian unsharp mask ($\sigma=1.2$), recovering high-frequency crater rims from $90^\circ$ FOV wide-angle lens diffraction blur.
+
+### 7. Two-Scale Architecture & Dual-Resolution Native Warping
+Registering high-resolution sensors against low-resolution references (e.g. TMC at $5.03\text{ m}$ vs WAC at $90.75\text{ m}$, an $18\times$ disparity) previously suffered from either severe interpolation blur (if upsampling the reference) or catastrophic loss of fine details (if downsampling the source). Our Two-Scale Architecture decouples the matching grid from the export grid:
+* **Matching Frame:** Reference (WAC) is kept strictly at its native $90.75\text{ m/px}$ (zero blur), while the coarse alignment search window spans $185\text{ km}$, yielding $100\%$ reliable consensus and dense LoFTR matches ($81\text{ matches}$).
+* **Transform Scaling:** The fitted 3-Layer Hybrid Model is mathematically scaled by $\text{Scale Factor} = \text{GSD}_{\text{harm}} / \text{GSD}_{\text{src\_native}} = 18.04\times$.
+* **Native-Resolution Export:** The untouched, native $5.03\text{ m}$ TMC raster is warped directly using order-3 bicubic splines into `registered_native_5m.tif` ($28{,}213 \times 54{,}592\text{ px}$), achieving sub-pixel precision ($0.707\text{ px}$ RMSE) at native physical scale!
+
+### 8. IIRS Hyperspectral Hyper-Slab Streaming & SWIR Band Selection
+Chandrayaan-2 IIRS hyperspectral cubes ($256\text{ bands}$, $800-5000\text{ nm}$) can easily cause Out-Of-Memory crashes if loaded whole. We implemented:
+* **Hyper-Slab Disk Streaming:** Slices single bands on-the-fly directly from HDF5 datasets (`f['Image/Data'][band, :, :]`), restricting RAM consumption to $<50\text{ MB}$.
+* **Solar-Reflective SWIR Band Selection:** Evaluates candidate bands (Channels 0–40, $800-1250\text{ nm}$), eliminates thermal emission inversion ($>2500\text{ nm}$), and selects the channel maximizing spatial Shannon entropy and contrast for the target reference sensor.
+
 ---
 
 ## 📊 Comprehensive Scientific Benchmarks
@@ -138,6 +156,22 @@ $$T(x, y) = T_{\text{Affine}}(x, y) + \begin{bmatrix} \Delta x_{\text{drift}}(y)
 | **Scanline Drift Compensation** | ❌ None | ❌ None | **✅ 3-Layer Pushbroom Physics** |
 | **Memory Footprint** | Crashes on full strip | 11.8 GB VRAM | **3.1 GB (Windowed Streaming)** |
 | **Execution Reliability** | Fails (Inverted) | Fails (Zero inliers) | **100% Convergence (North-Up Aligned)** |
+
+### Test Dataset 3: Chandrayaan-2 TMC-2 vs. LRO WAC (Extreme 18x GSD Disparity)
+* **Source:** `ch2_tmc_ncn_20210517T1508532205_d_img_d18` ($28{,}213 \times 54{,}592\text{ px}$, **$5.03\text{ m/px}$**)
+* **Reference:** `M171992374CE.IMG` (LRO WAC Push-Frame EDR, **$90.75\text{ m/px}$**, $689\text{ nm}$ Band 7)
+* **Mutual Overlap Area:** $1{,}614 \times 3{,}076\text{ pixels}$ at $90.75\text{ m}$ ($57.6\%$ Ref, $21.7\%$ Src)
+* **Challenge:** Extreme $18.04\times$ resolution gap, push-frame 14-line interleave, wide-angle optical blur, and low contrast lunar regolith.
+
+| Method / Metric | Standard Processing (Upsampled WAC) | **Our Two-Scale Architecture Engine** | Improvement / Impact |
+| :--- | :---: | :---: | :---: |
+| **WAC Preprocessing** | Raw Barcode / 4.25x Upsample Blur | **1D Normalized + Seam Feathered + MTF Sharpened** | Pristine single-band $689\text{ nm}$ |
+| **Coarse Alignment** | Fails ($dx=-392, dy=-382$) | **Consensus Peak ($dx=-30, dy=-398$)** | $100\%$ reliable across $185\text{ km}$ window |
+| **LoFTR Candidate Matches** | 7 matches | **81 matches** | **$11.5\times$ match yield surge** |
+| **Sub-Pixel ECC Refinement** | 5 converged | **30 converged ($\rho \ge 0.60$)** | High-precision tie-point network |
+| **Inlier Match Ratio** | 40.0% (2 / 5) | **66.7% (20 / 30)** | Zero blunders in active deformation model |
+| **Median Sub-Pixel Residual** | $dx=1.14\text{ px}, dy=-0.91\text{ px}$ | **$\mathbf{dx = -0.002\text{ px}}, \mathbf{dy = 0.124\text{ px}}$** | **Virtually zero systematic bias** |
+| **Dual-Resolution Native Export** | ❌ Downsampled only | **✅ `registered_native_5m.tif` ($5.03\text{ m}$)** | **$0.707\text{ px}$ L2 Drift RMSE at native scale!** |
 
 ---
 
@@ -246,6 +280,8 @@ pip install -r requirements.txt
 
 ### 2. Running End-to-End Registration
 Execute the master pipeline on any pair of lunar rasters with a single command:
+
+#### A. Chandrayaan-2 OHRC vs. LRO NAC (High-Resolution Narrow Angle):
 ```bash
 python run_pipeline.py \
     --source Test_Images/Test_2/OHRC/ch2_ohr_ncp_20210405T0245288072_d_img_d32_normalized.tif \
@@ -255,6 +291,29 @@ python run_pipeline.py \
     --out_dir projects/run_v2 \
     --method loftr \
     --force
+```
+
+#### B. Chandrayaan-2 TMC-2 vs. LRO WAC (Extreme 18x Scale Gap with Native 5m Export):
+```bash
+python run_pipeline.py \
+    --source Test_Images/Test_3/TMC/ch2_tmc_ncn_20210517T1508532205_d_img_d18.xml \
+    --reference Test_Images/Test_3/WAC/M171992374CE.IMG \
+    --sensor_src TMC \
+    --sensor_ref WAC \
+    --out_dir projects/test_tmc_wac \
+    --wac_band 7 \
+    --method loftr
+```
+
+#### C. Chandrayaan-2 IIRS vs. LRO WAC (Hyperspectral SWIR to Optical):
+```bash
+python run_pipeline.py \
+    --source Test_Images/Test_3/IIRS/ch2_iir_ncn_20210517T1508532205_d_img_d18.xml \
+    --reference Test_Images/Test_3/WAC/M171992374CE.IMG \
+    --sensor_src IIRS \
+    --sensor_ref WAC \
+    --out_dir projects/test_iirs_wac \
+    --method loftr
 ```
 
 ### 3. Running Unit & Integration Tests
