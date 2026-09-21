@@ -86,6 +86,28 @@ def test_bounding_overlap_on_real_data():
     assert res["ref_window"].width > 0
     print("Bounding overlap test passed!")
 
+
+def test_wac_deinterleaving(tmp_path):
+    from src.preprocessing.ingest import deinterleave_wac
+
+    wac_file = Path("Test_Images/Test_3/WAC/M171992374CE.IMG")
+    if not wac_file.exists():
+        return
+
+    out_tif, (w, h) = deinterleave_wac(wac_file, band=7, output_dir=tmp_path)
+    assert out_tif.exists()
+    assert w == 704
+    # 304 frames * 14 lines = 4256 lines
+    assert h == 4256
+
+    with rasterio.open(out_tif) as ds:
+        assert ds.width == 704
+        assert ds.height == 4256
+        arr = ds.read(1)
+        assert arr.min() >= 0
+        assert arr.max() <= 255
+        assert arr.mean() > 50.0  # Real lunar scene DN range
+
 if __name__ == "__main__":
     from tempfile import TemporaryDirectory
     print("Running Phase 1 tests...")

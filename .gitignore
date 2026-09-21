@@ -81,8 +81,8 @@ temp_kernels/
 runs/
 uploads/
 **/uploads/
-projects/*/normalized/
-projects/*/diagnostics/
+projects/
+Test_Images/
 
 # ------------------------------------------------------------------------------
 # 6. Runtime Logs, Temporary Output & Tile Dumps

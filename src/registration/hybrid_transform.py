@@ -198,6 +198,55 @@ class HybridTransform:
         )
         return inv_model
 
+    def scale(self, scale_factor: float) -> "HybridTransform":
+        """
+        Scales the transformation model by a scale_factor (e.g. GSD_harm / GSD_src_native).
+        Returns a new HybridTransform instance mapping native ref coords to native src coords.
+        """
+        scaled = HybridTransform()
+        
+        if self.affine_matrix is not None:
+            A = self.affine_matrix.copy()
+            A[0, 2] *= scale_factor
+            A[1, 2] *= scale_factor
+            scaled.affine_matrix = A
+            
+        if self.poly_coeffs_x is not None:
+            scaled.poly_coeffs_x = self.poly_coeffs_x.copy()
+            scaled.poly_coeffs_y = self.poly_coeffs_y.copy()
+            degree = len(self.poly_coeffs_x) - 1
+            for i in range(len(self.poly_coeffs_x)):
+                power = degree - i
+                scaled.poly_coeffs_x[i] = self.poly_coeffs_x[i] * (scale_factor ** (1 - power))
+                scaled.poly_coeffs_y[i] = self.poly_coeffs_y[i] * (scale_factor ** (1 - power))
+                
+        if hasattr(self, "src_inliers") and self.src_inliers is not None:
+            scaled.src_inliers = self.src_inliers * scale_factor
+            scaled.ref_inliers = self.ref_inliers * scale_factor
+            scaled.poly_degree = getattr(self, 'poly_degree', 2)
+            scaled.tps_smoothing = getattr(self, 'tps_smoothing', 0.05)
+            
+            src_homog = np.hstack([scaled.src_inliers, np.ones((len(scaled.src_inliers), 1))])
+            pred_L1 = (scaled.affine_matrix @ src_homog.T).T
+            y_coords = scaled.src_inliers[:, 1]
+            pred_dx = np.polyval(scaled.poly_coeffs_x, y_coords)
+            pred_dy = np.polyval(scaled.poly_coeffs_y, y_coords)
+            pred_L2 = pred_L1 + np.column_stack([pred_dx, pred_dy])
+            res_L2 = scaled.ref_inliers - pred_L2
+
+            if self.tps_rbf_x is not None:
+                scaled.tps_rbf_x = RBFInterpolator(
+                    scaled.src_inliers, res_L2[:, 0], kernel='thin_plate_spline', smoothing=scaled.tps_smoothing
+                )
+                scaled.tps_rbf_y = RBFInterpolator(
+                    scaled.src_inliers, res_L2[:, 1], kernel='thin_plate_spline', smoothing=scaled.tps_smoothing
+                )
+            else:
+                scaled.tps_rbf_x = None
+                scaled.tps_rbf_y = None
+                
+        return scaled
+
     def save(self, filepath: Path) -> None:
         """Serialize model parameters and inliers to JSON."""
         filepath = Path(filepath)

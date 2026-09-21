@@ -34,6 +34,7 @@ import numpy as np
 import rasterio
 
 # Import src components
+from src.preprocessing.ingest import ensure_georeferenced
 from src.preprocessing.scale_harmonizer import crop_and_harmonize_overlap
 from src.preprocessing.band_selector import extract_or_synthesize_band
 from src.registration.coarse_alignment import run_coarse_alignment
@@ -76,6 +77,8 @@ def parse_args():
                         help="Smoothing factor for Thin Plate Spline (default: 0.05)")
     parser.add_argument("--warp_order", type=int, default=3,
                         help="Interpolation spline order for warping: 3=bicubic, 1=bilinear (default: 3)")
+    parser.add_argument("--wac_band", type=int, default=7,
+                        help="WAC spectral band for push-frame de-interleaving: 7=689nm (Red, default), 4=566nm (Green), 3=415nm (Blue)")
     parser.add_argument("--force", action="store_true",
                         help="Force recomputation of intermediate cached products")
     parser.add_argument("--skip_verify", action="store_true",
@@ -139,12 +142,18 @@ def run_pipeline(args):
             use_synthesis=True
         )
 
+    # Georeference inputs if unprojected raw formats (PDS3 / PDS4)
+    georef_dir = out_dir / "georeferenced"
+    georef_dir.mkdir(parents=True, exist_ok=True)
+    source_geo = ensure_georeferenced(actual_source_path, args.sensor_src, georef_dir, force=args.force, wac_band=getattr(args, "wac_band", 7))
+    ref_geo = ensure_georeferenced(args.reference, args.sensor_ref, georef_dir, force=args.force, wac_band=getattr(args, "wac_band", 7))
+
     harmonized_dir = out_dir / "harmonized"
     harmonized_dir.mkdir(parents=True, exist_ok=True)
 
     source_cammap, ref_cropped, harm_meta = crop_and_harmonize_overlap(
-        source_path=actual_source_path,
-        ref_path=args.reference,
+        source_path=source_geo,
+        ref_path=ref_geo,
         output_dir=harmonized_dir,
         prefix="bbox_overlap",
         force_recompute=args.force

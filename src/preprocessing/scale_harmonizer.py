@@ -48,7 +48,9 @@ def crop_and_harmonize_overlap(
     output_dir: Path,
     prefix: str = "bbox_overlap",
     force_recompute: bool = False,
-    resample_alg: int = gdal.GRA_Bilinear
+    resample_alg: int = gdal.GRA_Bilinear,
+    sensor_ref: str = "",
+    sensor_src: str = ""
 ) -> Tuple[Path, Path, Dict[str, Any]]:
     """
     1. Computes geographic overlap bounding box between source and reference.
@@ -93,23 +95,60 @@ def crop_and_harmonize_overlap(
 
     l, b, r, t = overlap_info["overlap_bounds"]
     ref_xres, ref_yres = overlap_info["ref_res"]
+    src_xres, src_yres = overlap_info["src_res"]
     ref_crs = overlap_info["overlap_crs"]
 
-    # 1. Crop Reference raster to the exact overlap window
-    print("[BBOX-HARMONIZE] Step 1: Cropping Reference to bounding box...")
-    crop_window_to_geotiff(ref_path, overlap_info["ref_window"], ref_cropped_path)
+    gsd_ref = max(ref_xres, ref_yres)
+    gsd_src = max(src_xres, src_yres)
+    ratio = max(gsd_src, gsd_ref) / min(gsd_src, gsd_ref)
+    
+    # Check if reference is WAC (avoid upsampling low-res WAC by 4x)
+    is_wac = (str(sensor_ref).upper() == "WAC") or ("wac" in ref_path.name.lower())
+    
+    if ratio >= 3.0 and not is_wac:
+        import math
+        gsd_harm = min(max(math.sqrt(gsd_src * gsd_ref), 20.0), 30.0)
+        target_w = int(round((r - l) / gsd_harm))
+        target_h = int(round((t - b) / gsd_harm))
+    else:
+        gsd_harm = gsd_ref
+        target_w = int(overlap_info["ref_window"].width)
+        target_h = int(overlap_info["ref_window"].height)
 
-    with rasterio.open(ref_cropped_path) as ref_crop_ds:
-        target_w = ref_crop_ds.width
-        target_h = ref_crop_ds.height
-        target_crs = ref_crop_ds.crs.to_wkt()
+    target_crs_wkt = ref_crs.to_wkt() if hasattr(ref_crs, "to_wkt") else str(ref_crs)
 
-    # 2. Warp Source raster directly onto the cropped Reference grid
-    print(f"[BBOX-HARMONIZE] Step 2: Warping Source onto cropped Reference grid ({target_w}x{target_h})...")
+    # 1. Crop or Harmonize Reference to the exact overlap window
+    print(f"[BBOX-HARMONIZE] Step 1: Harmonizing Reference to bounding box (Ratio: {ratio:.2f}x, is_wac={is_wac})...")
+    if ratio >= 3.0 and not is_wac:
+        warp_ref_options = gdal.WarpOptions(
+            format="GTiff",
+            outputBounds=[l, b, r, t],
+            outputBoundsSRS=target_crs_wkt,
+            dstSRS=target_crs_wkt,
+            width=target_w,
+            height=target_h,
+            resampleAlg=resample_alg,
+            srcNodata=0,
+            dstNodata=0,
+            multithread=True,
+            warpOptions=["NUM_THREADS=ALL_CPUS"],
+            creationOptions=["TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=IF_SAFER"]
+        )
+        gdal.Warp(str(ref_cropped_path), str(ref_path), options=warp_ref_options)
+        target_crs = target_crs_wkt
+    else:
+        crop_window_to_geotiff(ref_path, overlap_info["ref_window"], ref_cropped_path)
+        with rasterio.open(ref_cropped_path) as ref_crop_ds:
+            target_w = ref_crop_ds.width
+            target_h = ref_crop_ds.height
+            target_crs = ref_crop_ds.crs.to_wkt()
+
+    # 2. Warp Source raster directly onto the cropped/harmonized Reference grid
+    print(f"[BBOX-HARMONIZE] Step 2: Warping Source onto harmonized grid ({target_w}x{target_h}, GSD={gsd_harm:.2f}m)...")
     warp_options = gdal.WarpOptions(
         format="GTiff",
         outputBounds=[l, b, r, t],
-        outputBoundsSRS=ref_crs.to_wkt() if hasattr(ref_crs, "to_wkt") else str(ref_crs),
+        outputBoundsSRS=target_crs_wkt,
         dstSRS=target_crs,
         width=target_w,
         height=target_h,
@@ -120,8 +159,30 @@ def crop_and_harmonize_overlap(
         warpOptions=["NUM_THREADS=ALL_CPUS"],
         creationOptions=["TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=IF_SAFER"]
     )
-
     gdal.Warp(str(source_cammap_path), str(source_path), options=warp_options)
+
+    # 2b. If WAC with large resolution ratio, also generate a native-resolution source crop for Stage 4 export
+    source_native_crop_path = None
+    if is_wac and ratio >= 3.0:
+        source_native_crop_path = output_dir / f"{prefix}_source_native_crop.tif"
+        native_w = int(round((r - l) / gsd_src))
+        native_h = int(round((t - b) / gsd_src))
+        native_warp_opts = gdal.WarpOptions(
+            format="GTiff",
+            outputBounds=[l, b, r, t],
+            outputBoundsSRS=target_crs_wkt,
+            dstSRS=target_crs,
+            width=native_w,
+            height=native_h,
+            resampleAlg=gdal.GRA_Bilinear,
+            srcNodata=0,
+            dstNodata=0,
+            multithread=True,
+            warpOptions=["NUM_THREADS=ALL_CPUS"],
+            creationOptions=["TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=IF_SAFER"]
+        )
+        gdal.Warp(str(source_native_crop_path), str(source_path), options=native_warp_opts)
+        print(f"  [BBOX-HARMONIZE] Generated native-resolution source crop: {source_native_crop_path.name} ({native_w}x{native_h}, GSD={gsd_src:.2f}m)")
 
     # 3. Step 3: Automatic Physical Orientation Verification & Rectification
     print("[BBOX-HARMONIZE] Step 3: Verifying North-Up physical orientation alignment...")
@@ -138,9 +199,12 @@ def crop_and_harmonize_overlap(
         "src_overlap_pct": overlap_info["src_overlap_pct"],
         "res_x": ref_xres,
         "res_y": ref_yres,
-        "scale_ratio": 1.0,
+        "gsd_harm": gsd_harm,
+        "scale_ratio": ratio,
+        "is_wac": is_wac,
+        "source_native_crop": str(source_native_crop_path) if source_native_crop_path else None,
         "orientation": detected_orientation,
-        "crs": ref_crs.to_string() if hasattr(ref_crs, "to_string") else str(ref_crs)
+        "crs": target_crs_wkt
     }
 
     with open(meta_json_path, "w") as f:

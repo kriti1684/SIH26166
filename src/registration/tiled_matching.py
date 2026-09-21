@@ -544,6 +544,7 @@ def run_tiled_matching(
         return {
             "total_matches": total_matches,
             "entropy": entropy,
+            "spatial_entropy": entropy,
             "max_entropy": max_entropy,
             "populated_cells": populated_cells,
             "src_pts": src_pts_arr,

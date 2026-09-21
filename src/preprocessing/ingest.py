@@ -156,13 +156,13 @@ def _load_pds4_raw(xml_path: Path, img_path: Optional[Path] = None) -> Tuple[np.
     return np.array(arr), None
 
 
-def _load_iirs_h5(h5_path: Path) -> Tuple[np.ndarray, None]:
+def _load_iirs_h5(h5_path: Path, target_band_idx: int = 1) -> Tuple[np.ndarray, None]:
     """
-    Load a single high-contrast optical band from an IIRS HDF5 file.
+    Load a single optical band from an IIRS HDF5 file using hyperslab streaming.
+    Memory usage remains < 50 MB by directly slicing the h5py Dataset on disk.
 
-    IIRS has ~256 spectral bands at 8–20 m GSD.
-    We pick Band 50 (~750 nm — peak reflectance, good terrain contrast)
-    for use in image co-registration.
+    IIRS has ~256 spectral bands at 8-20 m GSD.
+    Target band is configurable (usually 0/1 for ~800nm reflective).
 
     Returns
     -------
@@ -184,17 +184,17 @@ def _load_iirs_h5(h5_path: Path) -> Tuple[np.ndarray, None]:
         arr = None
         for key in candidates:
             if key in f:
-                raw = f[key][()]
-                # raw shape is (bands, lines, samples) or (lines, samples, bands)
-                if raw.ndim == 3:
-                    if raw.shape[0] < raw.shape[1]:  # (bands, lines, samples)
-                        band_idx = min(50, raw.shape[0] - 1)
-                        arr = raw[band_idx, :, :].astype(np.uint16)
+                dset = f[key]
+                # Shape is (bands, lines, samples) or (lines, samples, bands)
+                if len(dset.shape) == 3:
+                    if dset.shape[0] < dset.shape[1]:  # (bands, lines, samples)
+                        band_idx = min(target_band_idx, dset.shape[0] - 1)
+                        arr = dset[band_idx, :, :].astype(np.uint16)
                     else:                              # (lines, samples, bands)
-                        band_idx = min(50, raw.shape[2] - 1)
-                        arr = raw[:, :, band_idx].astype(np.uint16)
-                elif raw.ndim == 2:
-                    arr = raw.astype(np.uint16)
+                        band_idx = min(target_band_idx, dset.shape[2] - 1)
+                        arr = dset[:, :, band_idx].astype(np.uint16)
+                elif len(dset.shape) == 2:
+                    arr = dset[:, :].astype(np.uint16)
                 break
 
         if arr is None:
@@ -203,7 +203,7 @@ def _load_iirs_h5(h5_path: Path) -> Tuple[np.ndarray, None]:
                 f"Available keys: {list(f.keys())}"
             )
 
-    print(f"[INGEST] IIRS band loaded — shape: {arr.shape}, dtype: {arr.dtype}")
+    print(f"[INGEST] IIRS band loaded (Hyperslab) - shape: {arr.shape}, dtype: {arr.dtype}")
     return arr, None
 
 
@@ -393,3 +393,324 @@ def write_raw_tif(array: np.ndarray, out_path: Path, nodata: int = 0) -> None:
     ) as dst:
         dst.write(array, 1)
     print(f"[INGEST] Wrote raw (unprojected) TIF -> {out_path}")
+
+
+# ── 6. Automatic Georeferencing Helper ─────────────────────────────────────────
+
+_LRO_CORNER_CACHE: Dict[str, Dict[str, Any]] = {
+    "M171992374CE": {
+        "ul_lat": -55.58, "ul_lon": 144.86,
+        "ur_lat": -55.62, "ur_lon": 140.31,
+        "ll_lat": -67.4,  "ll_lon": 146.5,
+        "lr_lat": -67.47, "lr_lon": 139.83,
+        "lines": 23712,   "samples": 704
+    },
+    "M117615312LE": {
+        "ul_lat": -69.87, "ul_lon": 329.56,
+        "ur_lat": -69.88, "ur_lon": 329.13,
+        "ll_lat": -70.76, "ll_lon": 329.41,
+        "lr_lat": -70.77, "lr_lon": 328.93,
+        "lines": 52224,   "samples": 5064
+    },
+    "M1179837753RE": {
+        "ul_lat": -19.75, "ul_lon": 41.54,
+        "ur_lat": -19.75, "ur_lon": 41.41,
+        "ll_lat": -20.48, "ll_lon": 41.50,
+        "lr_lat": -20.47, "lr_lon": 41.37,
+        "lines": 27648,   "samples": 5064
+    }
+}
+
+
+def fetch_lro_corners(product_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve ground-truth footprint corners for an LRO product (ASU or local cache)."""
+    import re
+    import urllib.request
+
+    pid = product_id.upper().replace("_NORMALIZED", "").replace("_GEOREF", "").replace(".IMG", "")
+    if pid in _LRO_CORNER_CACHE:
+        return _LRO_CORNER_CACHE[pid].copy()
+
+    url = f"https://wms.lroc.asu.edu/lroc/view_lroc/LRO-L-LROC-2-EDR-V1.0/{pid}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        html = urllib.request.urlopen(req, timeout=10).read().decode("utf-8")
+        cell_matches = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>\s*<t[dh][^>]*>(.*?)</t[dh]>", html, re.DOTALL)
+        vals = {}
+        for k, v in cell_matches:
+            k_clean = re.sub(r"<.*?>", "", k).strip().lower()
+            v_clean = re.sub(r"<.*?>", "", v).strip()
+            try:
+                vals[k_clean] = float(v_clean)
+            except ValueError:
+                pass
+
+        res = {
+            "ul_lat": vals["upper left latitude"], "ul_lon": vals["upper left longitude"],
+            "ur_lat": vals["upper right latitude"], "ur_lon": vals["upper right longitude"],
+            "ll_lat": vals["lower left latitude"], "ll_lon": vals["lower left longitude"],
+            "lr_lat": vals["lower right latitude"], "lr_lon": vals["lower right longitude"],
+            "lines": int(vals.get("image lines", 0)),
+            "samples": int(vals.get("line samples", 0)),
+        }
+        return res
+    except Exception as e:
+        print(f"[INGEST] Could not fetch online corners for {pid}: {e}")
+        return None
+
+
+def deinterleave_wac(
+    file_path: Path,
+    band: int = 7,
+    output_dir: Optional[Path] = None
+) -> Tuple[Path, Tuple[int, int]]:
+    """
+    Pure-Python WAC Push-Frame De-interleaver (100% ISIS-free).
+
+    LRO WAC in COLOR mode acquires 7 narrow filter strips simultaneously on each 78-line CCD framelet.
+    In raw EDR (.IMG), all 7 bands are concatenated frame-by-frame (e.g. 304 frames * 78 lines = 23,712 lines).
+    This creates horizontal "barcode" stripes when viewed as a 2D image.
+
+    This function:
+      1. Parses the PDS3 label to check INSTRUMENT_MODE_ID and image geometry.
+      2. If COLOR mode (78 lines/frame across 7 filters):
+         - Band 1: 321 nm UV (lines 0..3, 4 lines)
+         - Band 2: 360 nm UV (lines 4..7, 4 lines)
+         - Band 3: 415 nm Blue (lines 8..21, 14 lines)
+         - Band 4: 566 nm Green (lines 22..35, 14 lines)
+         - Band 5: 604 nm Orange (lines 36..49, 14 lines)
+         - Band 6: 643 nm Red 1 (lines 50..63, 14 lines)
+         - Band 7: 689 nm Red 2 (lines 64..77, 14 lines) [Default, optimal for TMC/OHRC]
+      3. Reads raw byte counts at the byte offset (LABEL_RECORDS * RECORD_BYTES).
+      4. Stacks the framelets along-track into a continuous 2D raster of lunar terrain.
+      5. Writes an unprojected single-band GeoTIFF.
+
+    Returns
+    -------
+    (out_raw_tif, (width, height))
+    """
+    file_path = Path(file_path)
+    output_dir = Path(output_dir) if output_dir else file_path.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Parse PDS3 Header
+    record_bytes = 704
+    label_records = 10
+    mode = "COLOR"
+    lines = 0
+    samples = 704
+    n_frames = 0
+
+    with open(file_path, "rb") as f:
+        header_text = f.read(65536).decode("ascii", errors="ignore")
+
+    for line in header_text.splitlines():
+        line = line.strip()
+        if "RECORD_BYTES" in line and "=" in line:
+            try:
+                record_bytes = int(line.split("=")[1].strip())
+            except ValueError:
+                pass
+        elif "LABEL_RECORDS" in line and "=" in line:
+            try:
+                label_records = int(line.split("=")[1].strip())
+            except ValueError:
+                pass
+        elif "INSTRUMENT_MODE_ID" in line and "=" in line:
+            mode = line.split("=")[1].replace('"', '').strip().upper()
+        elif "LINES" in line and "=" in line and lines == 0:
+            try:
+                lines = int(line.split("=")[1].strip())
+            except ValueError:
+                pass
+        elif "LINE_SAMPLES" in line and "=" in line:
+            try:
+                samples = int(line.split("=")[1].strip())
+            except ValueError:
+                pass
+        elif "LRO:NFRAMES" in line and "=" in line:
+            try:
+                n_frames = int(line.split("=")[1].strip())
+            except ValueError:
+                pass
+
+    offset = label_records * record_bytes
+    if n_frames == 0 and lines > 0:
+        n_frames = lines // (78 if mode == "COLOR" else (70 if mode == "VIS" else 14))
+
+    print(f"[INGEST] WAC EDR Header: Mode={mode}, {n_frames} frames, {lines} lines, {samples} samples (Offset={offset} bytes)")
+
+    # Band slice lookup for COLOR mode (78 lines/frame)
+    band_slices = {
+        1: slice(0, 4),
+        2: slice(4, 8),
+        3: slice(8, 22),
+        4: slice(22, 36),
+        5: slice(36, 50),
+        6: slice(50, 64),
+        7: slice(64, 78),
+        # Wavelength aliases (nm)
+        321: slice(0, 4),
+        360: slice(4, 8),
+        415: slice(8, 22),
+        566: slice(22, 36),
+        604: slice(36, 50),
+        643: slice(50, 64),
+        689: slice(64, 78),
+    }
+
+    target_slice = band_slices.get(band, slice(64, 78))  # Default: Band 7 @ 689nm Red
+    frame_lines = 78 if mode == "COLOR" else (70 if mode == "VIS" else 14)
+
+    # 2. Read binary data with offset
+    raw = np.fromfile(file_path, dtype=np.uint8, offset=offset)
+    expected_size = n_frames * frame_lines * samples
+    if len(raw) < expected_size:
+        raise ValueError(f"WAC EDR file too short: got {len(raw)} bytes, expected {expected_size}")
+
+    data = raw[:expected_size].reshape(n_frames, frame_lines, samples)
+
+    # 3. Extract the requested band
+    band_frames = data[:, target_slice, :].astype(np.float32)
+    band_h = target_slice.stop - target_slice.start
+
+    # Task 1.1: 1D CCD Row Flat-Field Normalization
+    row_means = np.mean(band_frames, axis=(0, 2))  # Mean for each row across all frames and samples
+    overall_mean = np.mean(row_means)
+    if overall_mean > 0:
+        p_norm = row_means / overall_mean
+        p_norm[p_norm == 0] = 1.0  # Prevent division by zero
+        band_frames = band_frames / p_norm.reshape(1, band_h, 1)
+
+    # Task 1.2: Inter-Framelet Cosine Seam Feathering
+    if band_h >= 2 and n_frames > 1:
+        last_rows = band_frames[:-1, -1, :].copy()
+        first_rows = band_frames[1:, 0, :].copy()
+        band_frames[:-1, -1, :] = 0.75 * last_rows + 0.25 * first_rows
+        band_frames[1:, 0, :]   = 0.25 * last_rows + 0.75 * first_rows
+
+    # Stack along-track
+    deinterleaved = band_frames.reshape(n_frames * band_h, samples)
+    deinterleaved = np.clip(deinterleaved, 0, 255).astype(np.uint8)
+
+    # Task 1.3: Optical MTF Restoration Filter & Local Contrast Enhancement
+    import cv2
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    i_clahe = clahe.apply(deinterleaved)
+    
+    blurred = cv2.GaussianBlur(i_clahe, (0, 0), sigmaX=1.2, sigmaY=1.2)
+    i_sharp_f = 1.4 * i_clahe.astype(np.float32) - 0.4 * blurred.astype(np.float32)
+    deinterleaved = np.clip(i_sharp_f, 0, 255).astype(np.uint8)
+
+    out_raw_tif = output_dir / f"{file_path.stem}_deinter_b{band}.tif"
+    write_raw_tif(deinterleaved, out_raw_tif)
+    print(f"[INGEST] [OK] WAC de-interleaved & enhanced: {n_frames} framelets of {band_h} lines -> {deinterleaved.shape} raster ({out_raw_tif.name})")
+
+    return out_raw_tif, (samples, n_frames * band_h)
+
+
+def ensure_georeferenced(
+    file_path: Path,
+    sensor: str,
+    output_dir: Path,
+    force: bool = False,
+    wac_band: int = 7
+) -> Path:
+    """
+    Ensure the input raster is map-projected into Equirectangular Moon.
+    If already projected, returns the path as-is.
+    If unprojected raw PDS4/PDS3, automatically georeferences it into output_dir.
+    """
+    file_path = Path(file_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    proj = inspect_projection(file_path)
+    if proj["is_projected"]:
+        return file_path
+
+    sensor_up = sensor.upper()
+    stem = file_path.stem
+    out_georef = output_dir / f"{stem}_georef.tif"
+
+    if out_georef.exists() and out_georef.stat().st_size > 1024 and not force:
+        # Check if cached WAC is the old barcode version (corrupted with >10000 lines instead of ~3973)
+        if "WAC" in sensor_up or "CE" in stem.upper():
+            try:
+                with rasterio.open(out_georef) as check_ds:
+                    if check_ds.height > 10000:
+                        print(f"[INGEST] Detected obsolete barcode-corrupted WAC cache ({check_ds.height} lines). Regenerating...")
+                    else:
+                        print(f"[INGEST] Found valid cached georeferenced raster: {out_georef.name}")
+                        return out_georef
+            except Exception:
+                pass
+        else:
+            print(f"[INGEST] Found cached georeferenced raster: {out_georef.name}")
+            return out_georef
+
+    print(f"\n[INGEST] Raw unprojected raster detected ({sensor_up}): {file_path.name}")
+    print("         Initiating automated georeferencing to Equirectangular Moon...")
+
+    if any(s in sensor_up for s in ["NAC", "WAC", "LRO"]):
+        # LRO georeferencing
+        corners = fetch_lro_corners(stem)
+        if corners is None:
+            raise ValueError(f"Could not retrieve corner coordinates for LRO image: {file_path.name}")
+
+        is_wac = "WAC" in sensor_up or "CE" in stem.upper()
+        warp_input_path = file_path
+
+        with rasterio.open(file_path) as ds:
+            w, h = ds.width, ds.height
+
+        # De-interleave WAC push-frame if COLOR mode detected (eliminates barcode stripes)
+        if is_wac and (h % 78 == 0 or "COLOR" in sensor_up):
+            print(f"[INGEST] Detected WAC push-frame COLOR image ({h} lines). De-interleaving into single spectral band...")
+            deinter_tif, (w_clean, h_clean) = deinterleave_wac(file_path, band=wac_band, output_dir=output_dir)
+            warp_input_path = deinter_tif
+            w, h = w_clean, h_clean
+
+        gcps = [
+            (0, 0, corners["ul_lon"], corners["ul_lat"]),
+            (w, 0, corners["ur_lon"], corners["ur_lat"]),
+            (0, h, corners["ll_lon"], corners["ll_lat"]),
+            (w, h, corners["lr_lon"], corners["lr_lat"]),
+        ]
+        from .spice_georeference import _warp_with_gcps
+        _warp_with_gcps(warp_input_path, out_georef, gcps, width=w, height=h, poly_order=1)
+        print(f"[INGEST] [OK] LRO georeferenced -> {out_georef.name}")
+        return out_georef
+
+    else:
+        # Chandrayaan-2 (TMC, OHRC, IIRS)
+        xml_path = file_path if file_path.suffix.lower() == ".xml" else file_path.with_suffix(".xml")
+        if not xml_path.exists():
+            xml_path = file_path.with_suffix(".XML")
+        if not xml_path.exists():
+            raise FileNotFoundError(f"Matching PDS4 XML label not found for {file_path}")
+
+        from .spice_georeference import compute_gcps, apply_gcps_gdal, fallback_4_corner
+        import glob
+        kernels = glob.glob("data/spice/*.*")
+        spice_sensor = "TMC" if "TMC" in sensor_up else ("IIRS" if "IIRS" in sensor_up else "OHRC")
+
+        with rasterio.open(xml_path) as ds:
+            w, h = ds.width, ds.height
+
+        step = 5000 if spice_sensor == "TMC" else 500
+        gcps = []
+        if kernels:
+            try:
+                gcps = compute_gcps(str(xml_path), width=w, height=h, kernel_paths=kernels, sensor=spice_sensor, step=step)
+            except Exception as ex:
+                print(f"[INGEST] SPICE ray-tracing error ({ex}), falling back to XML corners.")
+                gcps = []
+
+        if len(gcps) > 4:
+            apply_gcps_gdal(str(xml_path), str(xml_path), out_georef, gcps)
+        else:
+            fallback_4_corner(str(xml_path), str(xml_path), str(out_georef))
+
+        print(f"[INGEST] [OK] Chandrayaan-2 {spice_sensor} georeferenced -> {out_georef.name}")
+        return out_georef

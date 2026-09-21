@@ -356,16 +356,6 @@ def run_coarse_alignment(
     print(f"  Ref:    {ref_cropped_path.name}")
 
     with rasterio.open(source_harmonized_path) as src, rasterio.open(ref_cropped_path) as ref:
-        # Step 1: Try Multiscale Overview Pyramid Matching
-        pyramid_res = multiscale_pyramid_coarse(src, ref)
-        if pyramid_res is not None and pyramid_res.get("inliers_count", 0) >= 15:
-            pyramid_res["source"] = str(source_harmonized_path)
-            pyramid_res["reference"] = str(ref_cropped_path)
-            pyramid_res["method_used"] = "multiscale_pyramid_sift"
-            with open(result_path, "w") as f:
-                json.dump(pyramid_res, f, indent=2)
-            return pyramid_res
-
         strip_profiles = []
         h = min(src.height, ref.height)
         w = min(src.width, ref.width)

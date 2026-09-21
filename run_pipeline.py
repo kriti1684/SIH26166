@@ -34,6 +34,7 @@ import numpy as np
 import rasterio
 
 # Import src components
+from src.preprocessing.ingest import ensure_georeferenced
 from src.preprocessing.scale_harmonizer import crop_and_harmonize_overlap
 from src.preprocessing.band_selector import extract_or_synthesize_band
 from src.registration.coarse_alignment import run_coarse_alignment
@@ -76,6 +77,8 @@ def parse_args():
                         help="Smoothing factor for Thin Plate Spline (default: 0.05)")
     parser.add_argument("--warp_order", type=int, default=3,
                         help="Interpolation spline order for warping: 3=bicubic, 1=bilinear (default: 3)")
+    parser.add_argument("--wac_band", type=int, default=7,
+                        help="WAC spectral band for push-frame de-interleaving: 7=689nm (Red, default), 4=566nm (Green), 3=415nm (Blue)")
     parser.add_argument("--force", action="store_true",
                         help="Force recomputation of intermediate cached products")
     parser.add_argument("--skip_verify", action="store_true",
@@ -131,23 +134,39 @@ def run_pipeline(args):
     # Hyperspectral band selection if source is IIRS
     if args.sensor_src == "IIRS":
         print("  [IIRS] Detected Hyperspectral cube. Performing solar-reflective SWIR band selection...")
-        band_out = out_dir / "iirs_selected_band.tif"
+        from src.preprocessing.band_selector import select_best_band_for_reference
+        
+        best_band_info = select_best_band_for_reference(
+            iirs_path=args.source,
+            reference_sensor=args.sensor_ref,
+            max_swir_band=40
+        )
+        
+        band_out = out_dir / f"iirs_selected_band_{best_band_info['selected_band']}.tif"
         actual_source_path = extract_or_synthesize_band(
             iirs_path=args.source,
             output_path=band_out,
-            ref_wavelength=689.0, # Target WAC/NAC visual band
-            use_synthesis=True
+            selected_band=best_band_info['selected_band'],
+            synthesize_pan=False
         )
+
+    # Georeference inputs if unprojected raw formats (PDS3 / PDS4)
+    georef_dir = out_dir / "georeferenced"
+    georef_dir.mkdir(parents=True, exist_ok=True)
+    source_geo = ensure_georeferenced(actual_source_path, args.sensor_src, georef_dir, force=args.force, wac_band=getattr(args, "wac_band", 7))
+    ref_geo = ensure_georeferenced(args.reference, args.sensor_ref, georef_dir, force=args.force, wac_band=getattr(args, "wac_band", 7))
 
     harmonized_dir = out_dir / "harmonized"
     harmonized_dir.mkdir(parents=True, exist_ok=True)
 
     source_cammap, ref_cropped, harm_meta = crop_and_harmonize_overlap(
-        source_path=actual_source_path,
-        ref_path=args.reference,
+        source_path=source_geo,
+        ref_path=ref_geo,
         output_dir=harmonized_dir,
         prefix="bbox_overlap",
-        force_recompute=args.force
+        force_recompute=args.force,
+        sensor_ref=args.sensor_ref,
+        sensor_src=args.sensor_src
     )
     print(f"  [OK] Stage 1 finished in {time.time() - t0:.2f}s")
 
@@ -262,6 +281,7 @@ def run_pipeline(args):
 
     registered_tif = out_dir / "registered_subpixel.tif"
 
+    # Stage 4.1: Warp on harmonized reference grid for verified sub-pixel registration
     warp_image_subpixel(
         source_path=source_cammap,
         ref_path=ref_cropped,
@@ -270,6 +290,26 @@ def run_pipeline(args):
         order=args.warp_order,
         block_rows=1024
     )
+
+    # Stage 4.2: Dual-Resolution Native Export (for WAC / large scale ratio pairs)
+    native_crop = harm_meta.get("source_native_crop")
+    if native_crop and Path(native_crop).exists():
+        try:
+            with rasterio.open(native_crop) as src:
+                native_gsd = abs(src.transform.a)
+            native_out = out_dir / f"registered_native_{int(round(native_gsd))}m.tif"
+            print(f"  [WARP] Dual-Resolution: Warping native resolution product -> {native_out.name} (GSD={native_gsd:.2f}m)...")
+            warp_image_subpixel(
+                source_path=native_crop,
+                ref_path=ref_cropped,
+                transform=hybrid_model,
+                output_path=native_out,
+                order=args.warp_order,
+                block_rows=1024,
+                target_gsd=native_gsd
+            )
+        except Exception as e:
+            print(f"  [WARP] Warning: Native export encountered an issue: {e}")
     print(f"  [OK] Stage 4 finished in {time.time() - t0:.2f}s")
 
     # ──────────────────────────────────────────────────────────────────────────

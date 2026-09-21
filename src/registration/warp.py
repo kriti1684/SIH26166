@@ -107,7 +107,8 @@ def warp_image_subpixel(
     output_path: Union[str, Path],
     order: int = 3,
     block_rows: int = 1024,
-    nodata_val: int = 0
+    nodata_val: int = 0,
+    target_gsd: float = None
 ) -> Path:
     """
     Warps the source raster onto the reference raster grid using high-precision bicubic/spline 
@@ -121,6 +122,7 @@ def warp_image_subpixel(
         order: Spline interpolation order (3 = bicubic, 1 = bilinear)
         block_rows: Number of rows per streaming tile to minimize RAM usage
         nodata_val: Nodata fill value
+        target_gsd: If provided, scales the output grid and transform to this native GSD.
 
     Returns:
         Path to output registered GeoTIFF
@@ -135,6 +137,13 @@ def warp_image_subpixel(
         model = HybridTransform.load(Path(transform))
     else:
         model = transform
+
+    if target_gsd is not None:
+        with rasterio.open(ref_path) as r:
+            gsd_harm = abs(r.transform.a)
+        scale_factor = gsd_harm / target_gsd
+        if hasattr(model, 'scale'):
+            model = model.scale(scale_factor)
 
     # Attempt to derive exact inverse transform
     inv_model = None
@@ -151,12 +160,23 @@ def warp_image_subpixel(
         ref_h = ref_ds.height
         src_w = src_ds.width
         src_h = src_ds.height
+        ref_transform = ref_ds.transform
+
+        if target_gsd is not None:
+            scale_factor = abs(ref_transform.a) / target_gsd
+            ref_w = int(np.round(ref_w * scale_factor))
+            ref_h = int(np.round(ref_h * scale_factor))
+            from rasterio.transform import Affine
+            ref_transform = ref_transform * Affine.scale(1.0 / scale_factor, 1.0 / scale_factor)
 
         # Setup output profile matching reference georeferencing
         profile = ref_ds.profile.copy()
         profile.update({
             "driver": "GTiff",
             "count": 1,
+            "width": ref_w,
+            "height": ref_h,
+            "transform": ref_transform,
             "nodata": nodata_val,
             "compress": "DEFLATE",
             "tiled": True,
