@@ -41,6 +41,16 @@ try:
 except ImportError:
     from preprocessing.structural import compute_structural_representation
 
+try:
+    from src.registration.loftr_matcher import LoFTRMatcher
+except ImportError:
+    try:
+        from registration.loftr_matcher import LoFTRMatcher
+    except ImportError:
+        LoFTRMatcher = None
+
+from scipy.stats import linregress
+
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -58,7 +68,7 @@ CRATER_MAX_RADIUS_PX = 200
 VOTING_BIN_SIZE = 4
 
 # Max plausible offset range to search (+/- pixels, both axes)
-MAX_OFFSET_SEARCH_PX = 300
+MAX_OFFSET_SEARCH_PX = 1000
 
 # Agreement threshold: methods agree if their estimates are within this many pixels
 METHOD_AGREEMENT_THRESH_PX = 30
@@ -197,6 +207,110 @@ def crater_rim_consensus_voting(
     return peak_dx, peak_dy, peak_votes, H
 
 
+# ─── Method C: Global Thumbnail LoFTR Coarse Alignment ───────────────────────
+
+def estimate_global_thumbnail_drift(
+    src_path: Path,
+    ref_path: Path,
+    max_dim: int = 1024,
+    min_inliers: int = 20
+) -> Optional[Dict[str, Any]]:
+    """
+    Fast global coarse alignment on downsampled full-swath thumbnails using LoFTR.
+    Absorbs massive along-track and across-track pointing errors (e.g. 500 - 5000 px) in ~3 seconds.
+    Returns:
+        dict with dx, dy, confidence, inliers_count, and linear drift model if successful,
+        or None if LoFTR is unavailable or finds insufficient matches.
+    """
+    if LoFTRMatcher is None:
+        return None
+
+    try:
+        with rasterio.open(src_path) as s, rasterio.open(ref_path) as r:
+            scale = min(1.0, float(max_dim) / max(s.height, s.width, r.height, r.width))
+            new_h_s = max(8, int(round(s.height * scale / 8.0)) * 8)
+            new_w_s = max(8, int(round(s.width * scale / 8.0)) * 8)
+            new_h_r = max(8, int(round(r.height * scale / 8.0)) * 8)
+            new_w_r = max(8, int(round(r.width * scale / 8.0)) * 8)
+
+            s_small = s.read(1, out_shape=(new_h_s, new_w_s), resampling=rasterio.enums.Resampling.bilinear)
+            r_small = r.read(1, out_shape=(new_h_r, new_w_r), resampling=rasterio.enums.Resampling.bilinear)
+
+            # Check valid data fraction
+            if (s_small > 0).mean() < 0.05 or (r_small > 0).mean() < 0.05:
+                return None
+
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            s_u8 = cv2.normalize(s_small, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            r_u8 = cv2.normalize(r_small, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            s_cl = clahe.apply(s_u8)
+            r_cl = clahe.apply(r_u8)
+
+            matcher = LoFTRMatcher()
+            pts_s, pts_r, confs = matcher.match(s_cl, r_cl)
+            if len(pts_s) < min_inliers:
+                return None
+
+            full_sx = pts_s[:, 0] * (s.width / new_w_s)
+            full_sy = pts_s[:, 1] * (s.height / new_h_s)
+            full_rx = pts_r[:, 0] * (r.width / new_w_r)
+            full_ry = pts_r[:, 1] * (r.height / new_h_r)
+
+            dxs = full_rx - full_sx
+            dys = full_ry - full_sy
+
+            med_dx = float(np.median(dxs))
+            med_dy = float(np.median(dys))
+            mad_dx = float(np.median(np.abs(dxs - med_dx)))
+            mad_dy = float(np.median(np.abs(dys - med_dy)))
+
+            inliers = (np.abs(dxs - med_dx) <= max(3.0 * mad_dx, 50.0)) & \
+                      (np.abs(dys - med_dy) <= max(3.0 * mad_dy, 50.0))
+            inl_count = int(np.sum(inliers))
+            if inl_count < min_inliers:
+                return None
+
+            if inl_count >= 10:
+                dy_slope, dy_int, _, _, _ = linregress(full_sy[inliers], dys[inliers])
+                dx_slope, dx_int, _, _, _ = linregress(full_sy[inliers], dxs[inliers])
+                if abs(dy_slope) > 0.15:
+                    dy_slope, dy_int = 0.0, med_dy
+                if abs(dx_slope) > 0.15:
+                    dx_slope, dx_int = 0.0, med_dx
+            else:
+                dy_slope, dy_int = 0.0, med_dy
+                dx_slope, dx_int = 0.0, med_dx
+
+            mean_conf = float(np.mean(confs[inliers]))
+            if mean_conf < 0.25:
+                return None
+
+            print(f"  [COARSE-ALIGN] Global Thumbnail LoFTR locked: dx={med_dx:.1f}, dy={med_dy:.1f} ({inl_count}/{len(pts_s)} inliers, conf={mean_conf:.2f})")
+            print(f"    Linear Drift: dy(row) = {dy_slope:.6f} * row + {dy_int:.2f}")
+            print(f"    Linear Drift: dx(row) = {dx_slope:.6f} * row + {dx_int:.2f}")
+
+            return {
+                "dx": med_dx,
+                "dy": med_dy,
+                "confidence": mean_conf,
+                "inliers_count": inl_count,
+                "total_matches": len(pts_s),
+                "drift_model": {
+                    "dy_slope": float(dy_slope),
+                    "dy_intercept": float(dy_int),
+                    "dx_slope": float(dx_slope),
+                    "dx_intercept": float(dx_int)
+                },
+                "strip_profiles": [],
+                "source": str(src_path),
+                "reference": str(ref_path),
+                "method_used": "global_thumbnail_loftr"
+            }
+    except Exception as e:
+        print(f"  [COARSE-ALIGN] Thumbnail LoFTR exception: {e}, falling back to multi-strip profiling.")
+        return None
+
+
 # ─── Master Coarse Alignment ─────────────────────────────────────────────────
 
 def run_coarse_alignment(
@@ -226,9 +340,40 @@ def run_coarse_alignment(
     output_dir.mkdir(parents=True, exist_ok=True)
     result_path = output_dir / "coarse_alignment_result.json"
 
-    print("[COARSE-ALIGN] Running multi-strip Decimated Coarse Alignment (Structural FFT + Crater Voting)...")
+    print("[COARSE-ALIGN] Running Decimated Coarse Alignment...")
     print(f"  Source: {source_harmonized_path.name}")
     print(f"  Ref:    {ref_cropped_path.name}")
+
+    # Primary Solver: Global Thumbnail LoFTR coarse alignment (~3 seconds, handles up to 5000px offsets)
+    loftr_coarse = estimate_global_thumbnail_drift(source_harmonized_path, ref_cropped_path)
+    if loftr_coarse is not None:
+        with open(result_path, "w") as f:
+            json.dump(loftr_coarse, f, indent=2)
+        return loftr_coarse
+
+    # Fallback Solver (Tier 2 & 3): Multi-strip vertical profiling with Decimated FFT Anchor
+    print("  [COARSE-ALIGN] LoFTR thumbnail unavailable or insufficient matches; running multi-strip vertical profiling...")
+    
+    # Tier 2: Extract approximate (anchor_dx, anchor_dy) from full-swath decimated FFT
+    # so that multi-strip profiling samples patches with mutual ground overlap even on 2000px offsets.
+    anchor_dx, anchor_dy = 0.0, 0.0
+    try:
+        with rasterio.open(source_harmonized_path) as s_th, rasterio.open(ref_cropped_path) as r_th:
+            scale_th = min(1.0, 1024.0 / max(s_th.height, s_th.width, r_th.height, r_th.width))
+            th_h = max(8, int(round(s_th.height * scale_th / 8.0)) * 8)
+            th_w = max(8, int(round(s_th.width * scale_th / 8.0)) * 8)
+            th_s = s_th.read(1, out_shape=(th_h, th_w), resampling=rasterio.enums.Resampling.bilinear)
+            th_r = r_th.read(1, out_shape=(th_h, th_w), resampling=rasterio.enums.Resampling.bilinear)
+            clahe_th = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            s_u8_th = cv2.normalize(th_s, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            r_u8_th = cv2.normalize(th_r, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            shift_th, resp_th = cv2.phaseCorrelate(clahe_th.apply(s_u8_th).astype(np.float32), clahe_th.apply(r_u8_th).astype(np.float32))
+            if resp_th > 0.04:
+                anchor_dx = float(shift_th[0] * (s_th.width / th_w))
+                anchor_dy = float(shift_th[1] * (s_th.height / th_h))
+                print(f"  [COARSE-ALIGN] Decimated FFT Anchor detected: dx={anchor_dx:.1f}, dy={anchor_dy:.1f} (response={resp_th:.3f})")
+    except Exception as e:
+        print(f"  [COARSE-ALIGN] Decimated FFT anchor note: {e}")
 
     with rasterio.open(source_harmonized_path) as src, rasterio.open(ref_cropped_path) as ref:
         strip_profiles = []
@@ -244,10 +389,14 @@ def run_coarse_alignment(
             r0 = max(0, r_center - patch_size // 2)
             c0 = max(0, c_center - patch_size // 2)
             
-            # Read window
-            win = Window(col_off=c0, row_off=r0, width=min(patch_size, w - c0), height=min(patch_size, h - r0))
-            src_patch = src.read(1, window=win).astype(np.float32)
-            ref_patch = ref.read(1, window=win).astype(np.float32)
+            # Read window: source at (c0, r0), reference centered around anchor-shifted coordinate
+            win_src = Window(col_off=c0, row_off=r0, width=min(patch_size, w - c0), height=min(patch_size, h - r0))
+            ref_c0 = max(0, min(w - patch_size, int(round(c0 + anchor_dx))))
+            ref_r0 = max(0, min(h - patch_size, int(round(r0 + anchor_dy))))
+            win_ref = Window(col_off=ref_c0, row_off=ref_r0, width=min(patch_size, w - ref_c0), height=min(patch_size, h - ref_r0))
+
+            src_patch = src.read(1, window=win_src).astype(np.float32)
+            ref_patch = ref.read(1, window=win_ref).astype(np.float32)
             
             # Check for sufficient valid data
             if (src_patch > 0).mean() < 0.2 or (ref_patch > 0).mean() < 0.2:
@@ -267,7 +416,8 @@ def run_coarse_alignment(
             dx_fft, dy_fft, fft_resp = phase_correlation_coarse(src_structural, ref_structural, patch_size)
             
             # Method B: Crater Rim Consensus
-            dx_c, dy_c, c_votes, _ = crater_rim_consensus_voting(src_clahe, ref_clahe)
+            eff_max_offset = min(1500, max(500, int(h * 0.08)))
+            dx_c, dy_c, c_votes, _ = crater_rim_consensus_voting(src_clahe, ref_clahe, max_offset=eff_max_offset)
             
             # Selection
             final_dx, final_dy = dx_fft, dy_fft
@@ -281,13 +431,17 @@ def run_coarse_alignment(
                     final_dx, final_dy = dx_c, dy_c
                     method_used = "crater_voting (dominant)"
 
-            print(f"  Strip {i+1}/{num_strips} at row {r_center}: dx={final_dx:.1f}, dy={final_dy:.1f} (fft_resp={fft_resp:.3f}, c_votes={c_votes}, used={method_used})")
+            # Map strip-local offset back to global coordinate space
+            abs_strip_dx = float(final_dx + (ref_c0 - c0))
+            abs_strip_dy = float(final_dy + (ref_r0 - r0))
+
+            print(f"  Strip {i+1}/{num_strips} at row {r_center}: dx={abs_strip_dx:.1f}, dy={abs_strip_dy:.1f} (fft_resp={fft_resp:.3f}, c_votes={c_votes}, used={method_used})")
             
             strip_profiles.append({
                 "strip_idx": i,
                 "row": r_center,
-                "dx": final_dx,
-                "dy": final_dy,
+                "dx": abs_strip_dx,
+                "dy": abs_strip_dy,
                 "fft_response": fft_resp,
                 "crater_votes": c_votes,
                 "method_used": method_used
