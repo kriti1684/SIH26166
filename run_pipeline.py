@@ -1,20 +1,20 @@
 """
 run_pipeline.py
 ===============
-Production CLI entry-point for the Next-Gen Sub-Pixel Lunar Image
-Co-Registration Engine (SIH Problem Statement SIH26166).
+ChandaShakti: Universal Sub-Pixel Multi-Modal Lunar Image Co-Registration Engine
+ISRO Smart India Hackathon (SIH 2024) — Problem Statement SIH26166.
 
 Features:
-  - Phase 1: Robust scale harmonization & structural enhancement
-  - Phase 2: Hierarchical multi-scale FFT / Phase Correlation coarse alignment
-  - Phase 3: Dense LoFTR / Local Attention matching + Sub-Pixel ECC refinement
-  - Phase 4: Hybrid Physical + B-Spline / TPS mathematical registration
-  - Phase 5: Streaming block-wise bicubic warping & multi-pillar verification
+  - Phase 1: Robust scale harmonization, SPICE ray-tracing & structural enhancement
+  - Phase 2: Dual-method coarse alignment (Structural FFT + Crater Rim Consensus Voting)
+  - Phase 3: Dense LoFTR attention matching + Sub-Pixel continuous Gauss-Newton ECC
+  - Phase 4: 3-Layer physics-grounded hybrid transformation (Affine + Drift + TPS)
+  - Phase 5: Streaming block-wise bicubic warping & multi-pillar scientific verification
 
 Usage Example:
   python run_pipeline.py --source <path> --reference <path> \
-                            --sensor_src <OHRC|IIRS|TMC> --sensor_ref <NAC|WAC|SELENE> \
-                            --out_dir <path>
+                         --sensor_src <OHRC|IIRS|TMC> --sensor_ref <NAC|WAC|SELENE> \
+                         --out_dir <path>
 """
 
 import os
@@ -31,6 +31,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import numpy as np
+import pandas as pd
 import rasterio
 
 # Import src components
@@ -47,7 +48,7 @@ from src.registration.verifier import run_verification
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Universal Sub-Pixel Lunar Registration Engine (ISRO SIH 26166 v2.0)",
+        description="ChandaShakti: Universal Sub-Pixel Lunar Registration Engine (ISRO SIH 26166 v2.0)",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     # Required parameters
@@ -65,8 +66,12 @@ def parse_args():
     # Optional tuning flags
     parser.add_argument("--grid_size", type=int, nargs=2, default=[4, 4],
                         help="Tiled matching grid rows and cols (default: 4 4)")
-    parser.add_argument("--method", choices=["loftr", "sift", "crater"], default="loftr",
+    parser.add_argument("--method", choices=["loftr", "ensemble", "crater"], default="loftr",
                         help="Feature matching and pooling method (default: loftr)")
+    parser.add_argument("--coarse_dx", type=float, default=None,
+                        help="Optional manual/anchor initial coarse shift in X pixels")
+    parser.add_argument("--coarse_dy", type=float, default=None,
+                        help="Optional manual/anchor initial coarse shift in Y pixels")
     parser.add_argument("--structural_method", choices=["phase_congruency", "gradient"], default="phase_congruency",
                         help="Structural feature representation method (default: phase_congruency)")
     parser.add_argument("--coarse_method", choices=["auto", "fft", "crater"], default="auto",
@@ -75,6 +80,8 @@ def parse_args():
                         help="Degree of scanline drift polynomial (default: 2)")
     parser.add_argument("--tps_smoothing", type=float, default=0.05,
                         help="Smoothing factor for Thin Plate Spline (default: 0.05)")
+    parser.add_argument("--ransac_threshold", type=float, default=1.2,
+                        help="RANSAC sub-pixel inlier threshold in pixels (default: 1.2)")
     parser.add_argument("--warp_order", type=int, default=3,
                         help="Interpolation spline order for warping: 3=bicubic, 1=bilinear (default: 3)")
     parser.add_argument("--wac_band", type=int, default=7,
@@ -83,13 +90,15 @@ def parse_args():
                         help="Force recomputation of intermediate cached products")
     parser.add_argument("--skip_verify", action="store_true",
                         help="Skip Phase 4 verification engine")
+    parser.add_argument("--export_native", action="store_true",
+                        help="Export secondary un-decimated native-GSD registered raster (large multi-gigapixel output)")
 
     return parser.parse_args()
 
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     except Exception:
         pass
 
@@ -97,7 +106,8 @@ if hasattr(sys.stdout, "reconfigure"):
 def print_banner():
     print("""
 +===========================================================================+
-|         UNIVERSAL SUB-PIXEL MULTI-MODAL LUNAR REGISTRATION ENGINE        |
+|                                CHANDASHAKTI                               |
+|         Universal Sub-Pixel Multi-Modal Lunar Registration Engine         |
 |                     ISRO SIH 26166 - Next-Gen Pipeline                    |
 |              Precision Target: < 0.2 px | Memory: Windowed BBox           |
 +===========================================================================+
@@ -176,17 +186,31 @@ def run_pipeline(args):
     t0 = time.time()
     print("\n[STAGE 2/5] Modality-Invariant Structural Extraction & Coarse Alignment...")
 
-    # Run dual-method coarse alignment
-    coarse_res = run_coarse_alignment(
-        source_harmonized_path=source_cammap,
-        ref_cropped_path=ref_cropped,
-        output_dir=out_dir,
-        structural_method=args.structural_method
-    )
-
-    coarse_dx = coarse_res["dx"]
-    coarse_dy = coarse_res["dy"]
-    coarse_conf = coarse_res.get("confidence", 0.5)
+    if args.coarse_dx is not None and args.coarse_dy is not None:
+        coarse_dx = float(args.coarse_dx)
+        coarse_dy = float(args.coarse_dy)
+        coarse_conf = 1.0
+        coarse_res = {
+            "dx": coarse_dx,
+            "dy": coarse_dy,
+            "confidence": 1.0,
+            "drift_model": {
+                "dy_slope": 0.0, "dy_intercept": coarse_dy,
+                "dx_slope": 0.0, "dx_intercept": coarse_dx
+            }
+        }
+        print(f"  [COARSE-OVERRIDE] Using user-specified initial coarse shift: dx = {coarse_dx:.2f} px, dy = {coarse_dy:.2f} px")
+    else:
+        # Run dual-method coarse alignment
+        coarse_res = run_coarse_alignment(
+            source_harmonized_path=source_cammap,
+            ref_cropped_path=ref_cropped,
+            output_dir=out_dir,
+            structural_method=args.structural_method
+        )
+        coarse_dx = coarse_res["dx"]
+        coarse_dy = coarse_res["dy"]
+        coarse_conf = coarse_res.get("confidence", 0.5)
 
     print(f"  Coarse Global Shift: dx = {coarse_dx:.2f} px, dy = {coarse_dy:.2f} px (Conf: {coarse_conf:.2f})")
     print(f"  [OK] Stage 2 finished in {time.time() - t0:.2f}s")
@@ -237,6 +261,12 @@ def run_pipeline(args):
         image_shape = (ds.height, ds.width)
 
     if len(refined_matches) >= 6:
+        # Filter for high-confidence ECC converged points (ecc_rho >= 0.55) if 5th column exists
+        if refined_matches.shape[1] >= 5:
+            good_ecc = refined_matches[:, 4] >= 0.55
+            if np.sum(good_ecc) >= 15:
+                refined_matches = refined_matches[good_ecc]
+                
         src_tie = refined_matches[:, :2]
         ref_tie = refined_matches[:, 2:4]
         print(f"  Fitting 3-Layer Hybrid Model on {len(src_tie)} sub-pixel tie points...")
@@ -245,9 +275,19 @@ def run_pipeline(args):
             ref_pts=ref_tie,
             image_shape=image_shape,
             poly_degree=args.poly_degree,
-            tps_smoothing=args.tps_smoothing
+            tps_smoothing=args.tps_smoothing,
+            ransac_threshold=args.ransac_threshold
         )
         hybrid_model.save(model_json)
+        if getattr(hybrid_model, "src_inliers", None) is not None:
+            inliers_csv = out_dir / "tie_points_inliers.csv"
+            inlier_df = pd.DataFrame({
+                "src_x": hybrid_model.src_inliers[:, 0],
+                "src_y": hybrid_model.src_inliers[:, 1],
+                "ref_x": hybrid_model.ref_inliers[:, 0],
+                "ref_y": hybrid_model.ref_inliers[:, 1]
+            })
+            inlier_df.to_csv(inliers_csv, index=False)
     elif match_info["total_matches"] >= 6:
         print("  [WARNING] ECC yielded few points; fitting hybrid model on candidate matches...")
         hybrid_model.fit(
@@ -255,9 +295,19 @@ def run_pipeline(args):
             ref_pts=match_info["ref_pts"],
             image_shape=image_shape,
             poly_degree=args.poly_degree,
-            tps_smoothing=args.tps_smoothing
+            tps_smoothing=args.tps_smoothing,
+            ransac_threshold=args.ransac_threshold
         )
         hybrid_model.save(model_json)
+        if getattr(hybrid_model, "src_inliers", None) is not None:
+            inliers_csv = out_dir / "tie_points_inliers.csv"
+            inlier_df = pd.DataFrame({
+                "src_x": hybrid_model.src_inliers[:, 0],
+                "src_y": hybrid_model.src_inliers[:, 1],
+                "ref_x": hybrid_model.ref_inliers[:, 0],
+                "ref_y": hybrid_model.ref_inliers[:, 1]
+            })
+            inlier_df.to_csv(inliers_csv, index=False)
     else:
         print("  [WARNING] Sparse matches (<6); using coarse translation baseline as rigid model.")
         # Create pure translation affine matrix: [ [1, 0, coarse_dx], [0, 1, coarse_dy] ]
@@ -291,9 +341,9 @@ def run_pipeline(args):
         block_rows=1024
     )
 
-    # Stage 4.2: Dual-Resolution Native Export (for WAC / large scale ratio pairs)
+    # Stage 4.2: Dual-Resolution Native Export (Optional: enabled via --export_native)
     native_crop = harm_meta.get("source_native_crop")
-    if native_crop and Path(native_crop).exists():
+    if getattr(args, "export_native", False) and native_crop and Path(native_crop).exists():
         try:
             with rasterio.open(native_crop) as src:
                 native_gsd = abs(src.transform.a)
@@ -323,7 +373,7 @@ def run_pipeline(args):
             registered_path=registered_tif,
             ref_path=ref_cropped,
             output_dir=out_dir,
-            tie_points_csv=subpixel_csv if subpixel_csv.exists() else candidate_csv,
+            tie_points_csv=(out_dir / "tie_points_inliers.csv") if (out_dir / "tie_points_inliers.csv").exists() else (subpixel_csv if subpixel_csv.exists() else candidate_csv),
             hybrid_model_json=model_json,
             grid_size=(args.grid_size[0], args.grid_size[1]),
             target_rmse_threshold=0.5

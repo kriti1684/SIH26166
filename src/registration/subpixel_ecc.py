@@ -148,7 +148,7 @@ def refine_matches_subpixel(
                 try:
                     hann = cv2.createHanningWindow((patch_size, patch_size), cv2.CV_32F)
                     (sub_dx, sub_dy), resp = cv2.phaseCorrelate(src_patch, ref_patch, hann)
-                    if abs(sub_dx) <= 5.0 and abs(sub_dy) <= 5.0 and resp >= 0.01:
+                    if abs(sub_dx) <= 3.0 and abs(sub_dy) <= 3.0 and resp >= 0.25:
                         refined_rx = irx + float(sub_dx)
                         refined_ry = iry + float(sub_dy)
                         refined_pts.append([float(isx), float(isy), refined_rx, refined_ry, float(resp)])

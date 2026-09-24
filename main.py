@@ -1,20 +1,20 @@
 """
 main.py
 =======
-Production CLI entry-point for the Next-Gen Sub-Pixel Lunar Image
-Co-Registration Engine (SIH Problem Statement SIH26166).
+ChandaShakti: Universal Sub-Pixel Multi-Modal Lunar Image Co-Registration Engine
+ISRO Smart India Hackathon (SIH 2024) — Problem Statement SIH26166.
 
 Features:
-  - Phase 1: Robust scale harmonization & structural enhancement
-  - Phase 2: Hierarchical multi-scale FFT / Phase Correlation coarse alignment
-  - Phase 3: Dense LoFTR / Local Attention matching + Sub-Pixel ECC refinement
-  - Phase 4: Hybrid Physical + B-Spline / TPS mathematical registration
-  - Phase 5: Streaming block-wise bicubic warping & multi-pillar verification
+  - Phase 1: Robust scale harmonization, SPICE ray-tracing & structural enhancement
+  - Phase 2: Dual-method coarse alignment (Structural FFT + Crater Rim Consensus Voting)
+  - Phase 3: Dense LoFTR attention matching + Sub-Pixel continuous Gauss-Newton ECC
+  - Phase 4: 3-Layer physics-grounded hybrid transformation (Affine + Drift + TPS)
+  - Phase 5: Streaming block-wise bicubic warping & multi-pillar scientific verification
 
 Usage Example:
   python main.py --source <path> --reference <path> \
-                            --sensor_src <OHRC|IIRS|TMC> --sensor_ref <NAC|WAC|SELENE> \
-                            --out_dir <path>
+                 --sensor_src <OHRC|IIRS|TMC> --sensor_ref <NAC|WAC|SELENE> \
+                 --out_dir <path>
 """
 
 import os
@@ -47,7 +47,7 @@ from src.registration.verifier import run_verification
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Universal Sub-Pixel Lunar Registration Engine (ISRO SIH 26166 v2.0)",
+        description="ChandaShakti: Universal Sub-Pixel Lunar Registration Engine (ISRO SIH 26166 v2.0)",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     # Required parameters
@@ -75,6 +75,8 @@ def parse_args():
                         help="Degree of scanline drift polynomial (default: 2)")
     parser.add_argument("--tps_smoothing", type=float, default=0.05,
                         help="Smoothing factor for Thin Plate Spline (default: 0.05)")
+    parser.add_argument("--ransac_threshold", type=float, default=1.2,
+                        help="RANSAC sub-pixel inlier threshold in pixels (default: 1.2)")
     parser.add_argument("--warp_order", type=int, default=3,
                         help="Interpolation spline order for warping: 3=bicubic, 1=bilinear (default: 3)")
     parser.add_argument("--wac_band", type=int, default=7,
@@ -97,7 +99,8 @@ if hasattr(sys.stdout, "reconfigure"):
 def print_banner():
     print("""
 +===========================================================================+
-|         UNIVERSAL SUB-PIXEL MULTI-MODAL LUNAR REGISTRATION ENGINE        |
+|                                CHANDASHAKTI                               |
+|         Universal Sub-Pixel Multi-Modal Lunar Registration Engine         |
 |                     ISRO SIH 26166 - Next-Gen Pipeline                    |
 |              Precision Target: < 0.2 px | Memory: Windowed BBox           |
 +===========================================================================+
@@ -227,6 +230,11 @@ def run_pipeline(args):
         image_shape = (ds.height, ds.width)
 
     if len(refined_matches) >= 6:
+        if refined_matches.shape[1] >= 5:
+            good_ecc = refined_matches[:, 4] >= 0.55
+            if np.sum(good_ecc) >= 15:
+                refined_matches = refined_matches[good_ecc]
+
         src_tie = refined_matches[:, :2]
         ref_tie = refined_matches[:, 2:4]
         print(f"  Fitting 3-Layer Hybrid Model on {len(src_tie)} sub-pixel tie points...")
@@ -235,9 +243,20 @@ def run_pipeline(args):
             ref_pts=ref_tie,
             image_shape=image_shape,
             poly_degree=args.poly_degree,
-            tps_smoothing=args.tps_smoothing
+            tps_smoothing=args.tps_smoothing,
+            ransac_threshold=args.ransac_threshold
         )
         hybrid_model.save(model_json)
+        if getattr(hybrid_model, "src_inliers", None) is not None:
+            import pandas as pd
+            inliers_csv = out_dir / "tie_points_inliers.csv"
+            inlier_df = pd.DataFrame({
+                "src_x": hybrid_model.src_inliers[:, 0],
+                "src_y": hybrid_model.src_inliers[:, 1],
+                "ref_x": hybrid_model.ref_inliers[:, 0],
+                "ref_y": hybrid_model.ref_inliers[:, 1]
+            })
+            inlier_df.to_csv(inliers_csv, index=False)
     elif match_info["total_matches"] >= 6:
         print("  [WARNING] ECC yielded few points; fitting hybrid model on candidate matches...")
         hybrid_model.fit(
@@ -245,9 +264,20 @@ def run_pipeline(args):
             ref_pts=match_info["ref_pts"],
             image_shape=image_shape,
             poly_degree=args.poly_degree,
-            tps_smoothing=args.tps_smoothing
+            tps_smoothing=args.tps_smoothing,
+            ransac_threshold=args.ransac_threshold
         )
         hybrid_model.save(model_json)
+        if getattr(hybrid_model, "src_inliers", None) is not None:
+            import pandas as pd
+            inliers_csv = out_dir / "tie_points_inliers.csv"
+            inlier_df = pd.DataFrame({
+                "src_x": hybrid_model.src_inliers[:, 0],
+                "src_y": hybrid_model.src_inliers[:, 1],
+                "ref_x": hybrid_model.ref_inliers[:, 0],
+                "ref_y": hybrid_model.ref_inliers[:, 1]
+            })
+            inlier_df.to_csv(inliers_csv, index=False)
     else:
         print("  [WARNING] Sparse matches (<6); using coarse translation baseline as rigid model.")
         # Create pure translation affine matrix: [ [1, 0, coarse_dx], [0, 1, coarse_dy] ]

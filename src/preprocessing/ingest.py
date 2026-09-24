@@ -418,6 +418,34 @@ _LRO_CORNER_CACHE: Dict[str, Dict[str, Any]] = {
         "ll_lat": -20.48, "ll_lon": 41.50,
         "lr_lat": -20.47, "lr_lon": 41.37,
         "lines": 27648,   "samples": 5064
+    },
+    "M173954190CE": {
+        "ul_lat": -64.72, "ul_lon": 205.01,
+        "ur_lat": -64.76, "ur_lon": 200.08,
+        "ll_lat": -78.77, "ll_lon": 208.99,
+        "lr_lat": -78.85, "lr_lon": 198.72,
+        "lines": 36036,   "samples": 704
+    },
+    "M186926223CE": {
+        "ul_lat": -68.54, "ul_lon": 202.81,
+        "ur_lat": -68.47, "ur_lon": 197.41,
+        "ll_lat": -57.57, "ll_lon": 202.77,
+        "lr_lat": -57.51, "lr_lon": 198.63,
+        "lines": 28392,   "samples": 704
+    },
+    "M1213227903RE": {
+        "ul_lat": -3.79, "ul_lon": 336.57,
+        "ur_lat": -3.78, "ur_lon": 336.42,
+        "ll_lat": -2.17, "ll_lon": 336.65,
+        "lr_lat": -2.16, "lr_lon": 336.49,
+        "lines": 52224,  "samples": 5064
+    },
+    "M1397763342RE": {
+        "ul_lat": -68.89, "ul_lon": 342.37,
+        "ur_lat": -68.86, "ur_lon": 342.70,
+        "ll_lat": -69.36, "ll_lon": 342.66,
+        "lr_lat": -69.34, "lr_lon": 343.00,
+        "lines": 9216,   "samples": 2532
     }
 }
 

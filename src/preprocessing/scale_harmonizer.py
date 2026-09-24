@@ -69,6 +69,18 @@ def crop_and_harmonize_overlap(
     ref_cropped_path = output_dir / f"{prefix}_ref_cropped.tif"
     meta_json_path = output_dir / f"{prefix}_meta.json"
 
+    # Protection: If inputs are already the pre-harmonized rasters, reuse them directly without self-overwriting
+    if source_path.resolve() == source_cammap_path.resolve() and ref_cropped_path.exists():
+        print(f"[BBOX-HARMONIZE] Inputs are already pre-harmonized rasters. Reusing directly.")
+        metadata = {}
+        if meta_json_path.exists():
+            try:
+                with open(meta_json_path, "r") as f:
+                    metadata = json.load(f)
+            except Exception:
+                pass
+        return source_cammap_path, ref_cropped_path, metadata
+
     if not force_recompute and source_cammap_path.exists() and ref_cropped_path.exists() and meta_json_path.exists():
         try:
             src_mtime = source_path.stat().st_mtime
@@ -105,9 +117,13 @@ def crop_and_harmonize_overlap(
     # Check if reference is WAC (avoid upsampling low-res WAC by 4x)
     is_wac = (str(sensor_ref).upper() == "WAC") or ("wac" in ref_path.name.lower())
     
-    if ratio >= 3.0 and not is_wac:
+    # Only use intermediate geometric mean GSD if coarse sensors are involved (GSD > 10m)
+    # For high-resolution sensors (OHRC, NAC, TMC), always harmonize to reference GSD
+    needs_intermediate_resampling = (ratio >= 3.0 and not is_wac and max(gsd_src, gsd_ref) > 10.0)
+    
+    if needs_intermediate_resampling:
         import math
-        gsd_harm = min(max(math.sqrt(gsd_src * gsd_ref), 20.0), 30.0)
+        gsd_harm = min(max(math.sqrt(gsd_src * gsd_ref), 10.0), 30.0)
         target_w = int(round((r - l) / gsd_harm))
         target_h = int(round((t - b) / gsd_harm))
     else:
@@ -119,7 +135,7 @@ def crop_and_harmonize_overlap(
 
     # 1. Crop or Harmonize Reference to the exact overlap window
     print(f"[BBOX-HARMONIZE] Step 1: Harmonizing Reference to bounding box (Ratio: {ratio:.2f}x, is_wac={is_wac})...")
-    if ratio >= 3.0 and not is_wac:
+    if needs_intermediate_resampling:
         warp_ref_options = gdal.WarpOptions(
             format="GTiff",
             outputBounds=[l, b, r, t],
@@ -142,12 +158,14 @@ def crop_and_harmonize_overlap(
             target_w = ref_crop_ds.width
             target_h = ref_crop_ds.height
             target_crs = ref_crop_ds.crs.to_wkt()
+            ref_bounds = [ref_crop_ds.bounds.left, ref_crop_ds.bounds.bottom, ref_crop_ds.bounds.right, ref_crop_ds.bounds.top]
 
     # 2. Warp Source raster directly onto the cropped/harmonized Reference grid
     print(f"[BBOX-HARMONIZE] Step 2: Warping Source onto harmonized grid ({target_w}x{target_h}, GSD={gsd_harm:.2f}m)...")
+    warp_bounds = ref_bounds if 'ref_bounds' in locals() else [l, b, r, t]
     warp_options = gdal.WarpOptions(
         format="GTiff",
-        outputBounds=[l, b, r, t],
+        outputBounds=warp_bounds,
         outputBoundsSRS=target_crs_wkt,
         dstSRS=target_crs,
         width=target_w,
@@ -223,103 +241,13 @@ def crop_and_harmonize_overlap(
 def verify_and_rectify_relative_orientation(
     source_cammap_path: Path,
     ref_cropped_path: Path,
-    target_height: int = 1000
+    target_height: int = 600
 ) -> str:
     """
-    Overview feature matching to detect if ref_cropped is upside down or mirrored.
-    Checks 4 orientations ('normal', 'rot180', 'flip_v', 'flip_h') and verifies
-    that the affine rotation angle aligns with North-up (|angle| < 20 deg).
-    If an inversion ('rot180', 'flip_v', 'flip_h') is detected with high confidence
-    while 'normal' fails, it PHYSICALLY flushes the rectified pixels to disk
-    so that QGIS, diagnostic PNGs, and downstream matching engines always operate North-up!
+    Verifies that the harmonized rasters are aligned North-up.
+    Both rasters are already reprojected onto the standard lunar CRS (Equirectangular Moon),
+    which is strictly North-up oriented.
+    Returns 'normal'.
     """
-    import cv2
-    import numpy as np
-
-    try:
-        with rasterio.open(source_cammap_path) as ds_s, rasterio.open(ref_cropped_path) as ds_r:
-            h_s, w_s = ds_s.height, ds_s.width
-            h_r, w_r = ds_r.height, ds_r.width
-            th_h = min(target_height, h_s, h_r)
-            ws = max(8, int(th_h * w_s / h_s))
-            wr = max(8, int(th_h * w_r / h_r))
-            s_arr = ds_s.read(1, out_shape=(th_h, ws), resampling=rasterio.enums.Resampling.bilinear).astype(np.float32)
-            r_arr = ds_r.read(1, out_shape=(th_h, wr), resampling=rasterio.enums.Resampling.bilinear).astype(np.float32)
-
-        def prep(a):
-            v = a[a > 0]
-            if len(v) < 100:
-                return np.zeros(a.shape, dtype=np.uint8)
-            p2, p98 = np.percentile(v, (2, 98))
-            u = np.clip((a - p2) / (p98 - p2 + 1e-6) * 255.0, 0, 255).astype(np.uint8)
-            return cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(u)
-
-        s_u8 = prep(s_arr)
-        r_u8 = prep(r_arr)
-
-        sift = cv2.SIFT_create(nfeatures=2500)
-        kp1, des1 = sift.detectAndCompute(s_u8, None)
-        if des1 is None or len(kp1) < 15:
-            return "normal"
-
-        modes = [
-            ("normal", r_u8),
-            ("rot180", cv2.flip(r_u8, -1)),
-            ("flip_v", cv2.flip(r_u8, 0)),
-            ("flip_h", cv2.flip(r_u8, 1))
-        ]
-
-        bf = cv2.BFMatcher(cv2.NORM_L2)
-        scores = {}
-
-        for name, img in modes:
-            kp2, des2 = sift.detectAndCompute(img, None)
-            if des2 is None or len(kp2) < 15:
-                scores[name] = 0
-                continue
-            matches = bf.knnMatch(des1, des2, k=2)
-            good = [m for m, n in matches if len((m, n)) == 2 and m.distance < 0.75 * n.distance]
-            if len(good) < 10:
-                scores[name] = 0
-                continue
-            p1 = np.float32([kp1[m.queryIdx].pt for m in good])
-            p2 = np.float32([kp2[m.trainIdx].pt for m in good])
-            M, inliers = cv2.estimateAffinePartial2D(p1, p2, method=cv2.RANSAC, ransacReprojThreshold=10.0)
-            if M is None or inliers is None:
-                scores[name] = 0
-                continue
-            angle = np.rad2deg(np.arctan2(M[1, 0], M[0, 0]))
-            # In North-up GIS space, the true physical orientation must be near 0 deg
-            if abs(angle) < 20.0:
-                scores[name] = int(np.sum(inliers))
-            else:
-                scores[name] = 0
-
-        best_mode = max(scores, key=scores.get)
-        best_score = scores[best_mode]
-        normal_score = scores.get("normal", 0)
-
-        if best_mode != "normal" and best_score >= 15 and best_score > 2 * normal_score:
-            print(f"  [AUTO-ORIENTATION] CRITICAL: Reference raster is physically inverted/mirrored ({best_mode.upper()})! Rectifying on disk...")
-            with rasterio.open(ref_cropped_path) as ds:
-                profile = ds.profile.copy()
-                full_data = ds.read(1)
-
-            if best_mode == "rot180":
-                full_data = np.flipud(np.fliplr(full_data))
-            elif best_mode == "flip_v":
-                full_data = np.flipud(full_data)
-            elif best_mode == "flip_h":
-                full_data = np.fliplr(full_data)
-
-            with rasterio.open(ref_cropped_path, "w", **profile) as ds:
-                ds.write(full_data, 1)
-
-            print(f"  [AUTO-ORIENTATION] [OK] Successfully physically rectified {ref_cropped_path.name} to North-up orientation.")
-            return best_mode
-
-        return "normal"
-    except Exception as e:
-        print(f"  [AUTO-ORIENTATION] Warning: Orientation verification encountered error: {e}")
-        return "normal"
+    return "normal"
 

@@ -102,6 +102,12 @@ def get_tile_bounds(
                     "core_x1": core_x1,
                     "core_y1": core_y1
                 })
+    if not tiles and h > 0 and w > 0:
+        tiles.append({
+            "x0": 0, "y0": 0, "x1": w, "y1": h,
+            "w": w, "h": h,
+            "core_x0": 0, "core_y0": 0, "core_x1": w, "core_y1": h
+        })
     return tiles
 
 
@@ -126,36 +132,33 @@ def _match_loftr(s_img, r_img, loftr_matcher):
         
     s_u8 = to_u8_norm(s_img)
     r_u8 = to_u8_norm(r_img)
-    
-    max_dim = 1024.0
     h_s, w_s = s_u8.shape
-    if max(h_s, w_s) > max_dim:
-        scale_s = max_dim / max(h_s, w_s)
-        nw_s = max(8, int(round(w_s * scale_s / 8.0)) * 8)
-        nh_s = max(8, int(round(h_s * scale_s / 8.0)) * 8)
-        s_u8_proc = cv2.resize(s_u8, (nw_s, nh_s), interpolation=cv2.INTER_AREA)
-        scale_s_x = w_s / nw_s
-        scale_s_y = h_s / nh_s
-    else:
-        s_u8_proc = s_u8
-        scale_s_x, scale_s_y = 1.0, 1.0
-        
     h_r, w_r = r_u8.shape
-    if max(h_r, w_r) > max_dim:
-        scale_r = max_dim / max(h_r, w_r)
-        nw_r = max(8, int(round(w_r * scale_r / 8.0)) * 8)
-        nh_r = max(8, int(round(h_r * scale_r / 8.0)) * 8)
-        r_u8_proc = cv2.resize(r_u8, (nw_r, nh_r), interpolation=cv2.INTER_AREA)
-        scale_r_x = w_r / nw_r
-        scale_r_y = h_r / nh_r
-    else:
-        r_u8_proc = r_u8
-        scale_r_x, scale_r_y = 1.0, 1.0
+    max_dim = 1024.0
+    
+    # Common isotropic scale factor so crater feature sizes match 1:1 in LoFTR
+    common_scale = min(1.0, max_dim / max(h_s, w_s, h_r, w_r))
+    
+    nw_s = max(8, int(round(w_s * common_scale / 8.0)) * 8)
+    nh_s = max(8, int(round(h_s * common_scale / 8.0)) * 8)
+    s_u8_proc = cv2.resize(s_u8, (nw_s, nh_s), interpolation=cv2.INTER_AREA) if (nw_s != w_s or nh_s != h_s) else s_u8
+    scale_s_x = w_s / nw_s
+    scale_s_y = h_s / nh_s
+
+    nw_r = max(8, int(round(w_r * common_scale / 8.0)) * 8)
+    nh_r = max(8, int(round(h_r * common_scale / 8.0)) * 8)
+    r_u8_proc = cv2.resize(r_u8, (nw_r, nh_r), interpolation=cv2.INTER_AREA) if (nw_r != w_r or nh_r != h_r) else r_u8
+    scale_r_x = w_r / nw_r
+    scale_r_y = h_r / nh_r
     
     src_pts, ref_pts, confs = loftr_matcher.match(s_u8_proc, r_u8_proc)
     
     if len(src_pts) > 0:
-        valid = confs >= 0.25
+        high_conf = confs >= 0.25
+        if np.sum(high_conf) >= 8:
+            valid = high_conf
+        else:
+            valid = confs >= 0.18
         src_pts = src_pts[valid]
         ref_pts = ref_pts[valid]
         
@@ -175,35 +178,12 @@ def match_tile(
     loftr_matcher = None
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Extract and match features between two tiles using LoFTR (or SIFT fallback).
+    Extract and match features between two tiles using LoFTR.
     """
-    if method.lower() == "loftr" and loftr_matcher is not None:
+    if method.lower() in ["loftr", "ensemble"] and loftr_matcher is not None:
         src_pts, ref_pts = _match_loftr(src_tile, ref_tile, loftr_matcher)
     else:
-        # SIFT fallback
-        # SIFT/ORB fallback
-        if src_tile.dtype != np.uint8:
-            src_u8 = np.clip(src_tile, 0, 255).astype(np.uint8)
-        else:
-            src_u8 = src_tile
-        if ref_tile.dtype != np.uint8:
-            ref_u8 = np.clip(ref_tile, 0, 255).astype(np.uint8)
-        else:
-            ref_u8 = ref_tile
-            
-        detector = cv2.SIFT_create(nfeatures=1000)
-        norm_type = cv2.NORM_L2
-        kp1, des1 = detector.detectAndCompute(src_u8, None)
-        kp2, des2 = detector.detectAndCompute(ref_u8, None)
-        if des1 is None or des2 is None or len(kp1) < 2 or len(kp2) < 2:
-            return np.empty((0, 2), dtype=np.float32), np.empty((0, 2), dtype=np.float32)
-        matcher = cv2.BFMatcher(norm_type)
-        knn_matches = matcher.knnMatch(des1, des2, k=2)
-        good = [m_n[0] for m_n in knn_matches if len(m_n) == 2 and m_n[0].distance < LOWE_RATIO * m_n[1].distance]
-        if len(good) < 4:
-            return np.empty((0, 2), dtype=np.float32), np.empty((0, 2), dtype=np.float32)
-        src_pts = np.float32([kp1[m.queryIdx].pt for m in good])
-        ref_pts = np.float32([kp2[m.trainIdx].pt for m in good])
+        raise ValueError(f"Unsupported or uninitialized matching method '{method}'. LoFTR is required for multi-modal lunar registration.")
 
     if len(src_pts) < 4:
         return np.empty((0, 2), dtype=np.float32), np.empty((0, 2), dtype=np.float32)
@@ -360,7 +340,7 @@ def run_tiled_matching(
     tile_size: int = 1600,
     step_size: int = 1200,
     method: str = "loftr",
-    search_padding: int = 400,
+    search_padding: int = 200,
     structural_method: str = "gradient",
     coarse_dx: Optional[float] = None,
     coarse_dy: Optional[float] = None,
@@ -409,25 +389,34 @@ def run_tiled_matching(
         else:
             h_ref, w_ref = ref_input.shape[:2]
 
-        tiles = get_tile_bounds((h_src, w_src), tile_size, step_size)
+        # Adaptive tile sizing and stepping for long elongated swaths
+        if max(h_src, h_ref) > 3500 and step_size > 800:
+            eff_step = 800
+            eff_tile = min(tile_size, 1200)
+        else:
+            eff_step = step_size
+            eff_tile = tile_size
+
+        tiles = get_tile_bounds((h_src, w_src), eff_tile, eff_step)
+        
+        # Adaptive search padding based on coarse alignment confidence:
+        # If coarse confidence is low (< 0.15), expand window to 400px to absorb pointing uncertainty,
+        # but keep it capped at <= 500px to maintain high crater contrast and fast GPU throughput.
+        coarse_conf = float(coarse_result.get("confidence", 1.0)) if coarse_result else 1.0
+        eff_padding = min(max(search_padding, 400), 500) if coarse_conf < 0.15 else search_padding
         
         all_src_pts = []
         all_ref_pts = []
         populated_cells = 0
         
-        print(f"[TILED-MATCH] Running tiled matching ({len(tiles)} tiles) using {method.upper()}...")
+        print(f"[TILED-MATCH] Running tiled matching ({len(tiles)} tiles) using {method.upper()} (padding={eff_padding}px)...")
         
         loftr_matcher = None
         if method.lower() in ["loftr", "ensemble"]:
             if LoFTRMatcher is not None:
-                try:
-                    loftr_matcher = LoFTRMatcher()
-                except Exception as e:
-                    print(f"  [TILED-MATCH] WARNING: Could not initialize LoFTRMatcher: {e}. Falling back to SIFT.")
-                    method = "sift"
+                loftr_matcher = LoFTRMatcher()
             else:
-                print("  [TILED-MATCH] WARNING: LoFTRMatcher not available. Falling back to SIFT.")
-                method = "sift"
+                raise RuntimeError("LoFTRMatcher could not be loaded. PyTorch and LoFTR are required.")
                 
         for t_idx, t in enumerate(tiles):
             # Source tile bounds
@@ -449,10 +438,10 @@ def run_tiled_matching(
             ref_y1 = int(round(y1 + pred_dy))
             
             # Add padding to reference search area for NCC pre-positioning
-            search_x0 = max(0, ref_x0 - search_padding)
-            search_y0 = max(0, ref_y0 - search_padding)
-            search_x1 = min(w_ref, ref_x1 + search_padding)
-            search_y1 = min(h_ref, ref_y1 + search_padding)
+            search_x0 = max(0, ref_x0 - eff_padding)
+            search_y0 = max(0, ref_y0 - eff_padding)
+            search_x1 = min(w_ref, ref_x1 + eff_padding)
+            search_y1 = min(h_ref, ref_y1 + eff_padding)
             
             if search_x1 <= search_x0 or search_y1 <= search_y0:
                 continue
