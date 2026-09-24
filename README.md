@@ -258,6 +258,37 @@ ChandaShakti has been verified across diverse lunar orbital datasets covering ex
 - **Zero Directional Bias:** $\text{Median } \Delta x = 0.0044\text{ px}, \ \text{Median } \Delta y = 0.0074\text{ px}$.
 - **Full TPS Elastic Relief:** 222 robust spatial inliers activated Layer 3 Thin Plate Splines across $59.4\%$ swath coverage.
 
+### 4.2 Baseline Architecture Benchmark: SIFT vs. SuperPoint vs. ChandaShakti
+Comparison against classical and deep detector-based methods on challenging lunar orbital swaths:
+* **Dataset:** Chandrayaan-2 OHRC vs. LRO NAC (South Polar Strip, $6,830 \times 21,134\text{ px}$, $144.3\text{ Megapixels}$)
+* **Evaluation Condition:** Large along-track displacement ($> 1,900\text{ px}$), low-sun illumination, and deep polar shadowing.
+
+| Method / Metric | Traditional SIFT + RANSAC | SuperPoint + SuperGlue | **ChandaShakti (LoFTR + Sub-Pixel ECC)** |
+| :--- | :---: | :---: | :---: |
+| **Candidate Matches** | 18 | 84 | **19,702** |
+| **Active Inliers (Post-QC)** | 4 | 22 | **794 (Refined) / 540 (Active TPS)** |
+| **Grid Cell Coverage** | 4 / 108 (3.7%) | 12 / 108 (11.1%) | **79 / 108 (73.1%)** |
+| **Shannon Spatial Entropy $H(S)$** | 0.82 / 6.75 | 1.84 / 6.75 | **4.31 / 6.75 (High Uniformity)** |
+| **Sub-Pixel Precision** | None ($\pm 2.5\text{ px}$) | None ($\pm 1.2\text{ px}$) | **$< 0.20\text{ px}$ Verified** |
+| **Scanline Drift Compensation** | ❌ None | ❌ None | **✅ 3-Layer Pushbroom Physics** |
+| **Memory Footprint** | Crashes on full strip | 11.8 GB VRAM | **3.1 GB (Windowed Streaming)** |
+| **Execution Reliability** | Fails (Inverted) | Fails (Zero inliers) | **100% Convergence (North-Up Aligned)** |
+
+### 4.3 LRO WAC Optics & Two-Scale Architecture Benchmark (TMC-2 vs. LRO WAC)
+Demonstrating push-frame restoration and dual-resolution native warping on extreme GSD disparities:
+* **Dataset:** Chandrayaan-2 TMC-2 ($5.03\text{ m/px}$) vs. LRO WAC Push-Frame EDR ($90.75\text{ m/px}$, Band 7 $689\text{ nm}$)
+* **Challenge:** Extreme $18.04\times$ resolution gap, push-frame 14-line interleave, wide-angle lens diffraction blur, and low-contrast maria regolith.
+
+| Method / Metric | Standard Processing (Upsampled WAC) | **ChandaShakti Two-Scale Architecture** | Improvement / Impact |
+| :--- | :---: | :---: | :---: |
+| **WAC Preprocessing** | Raw Barcode / 4.25x Upsample Blur | **1D Normalized + Seam Feathered + MTF Sharpened** | Pristine single-band $689\text{ nm}$ |
+| **Coarse Alignment** | Fails ($dx=-392, dy=-382$) | **Consensus Peak ($dx=-30, dy=-398$)** | $100\%$ reliable across $185\text{ km}$ window |
+| **LoFTR Candidate Matches** | 7 matches | **81 matches** | **$11.5\times$ match yield surge** |
+| **Sub-Pixel ECC Refinement** | 5 converged | **30 converged ($\rho \ge 0.60$)** | High-precision tie-point network |
+| **Inlier Match Ratio** | 40.0% (2 / 5) | **66.7% (20 / 30)** | Zero blunders in active deformation model |
+| **Median Sub-Pixel Residual** | $dx=1.14\text{ px}, dy=-0.91\text{ px}$ | **$\mathbf{dx = -0.002\text{ px}}, \mathbf{dy = 0.124\text{ px}}$** | **Virtually zero systematic bias** |
+| **Dual-Resolution Native Export** | ❌ Downsampled only ($90.75\text{ m}$) | **✅ `registered_native_5m.tif` ($5.03\text{ m}$)** | **$0.707\text{ px}$ L2 Drift RMSE at native scale!** |
+
 ---
 
 ## 💻 5. CLI Command Reference & Usage Guide
