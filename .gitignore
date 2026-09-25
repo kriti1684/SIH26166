@@ -125,4 +125,12 @@ data/spice_kernels/
 legacy_src_v1/
 SIH26166/
 scratch/
+data/storage/
+
+# ------------------------------------------------------------------------------
+# 11. Local frontend install/build output
+# ------------------------------------------------------------------------------
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
 

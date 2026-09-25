@@ -60,7 +60,7 @@ def generate_composite_overlay(
     registered_path: Path,
     ref_path: Path,
     output_png: Path,
-    decimation: int = 4
+    max_dim: int = 1400
 ) -> Path:
     """
     Generates a false-color composite image overlay (Red = Warped Source, Green = Ref, Blue = Ref).
@@ -70,7 +70,8 @@ def generate_composite_overlay(
     output_png.parent.mkdir(parents=True, exist_ok=True)
 
     with rasterio.open(registered_path) as s, rasterio.open(ref_path) as r:
-        out_shape = (1, max(1, s.height // decimation), max(1, s.width // decimation))
+        scale = min(1.0, max_dim / max(s.width, s.height))
+        out_shape = (1, max(1, round(s.height * scale)), max(1, round(s.width * scale)))
         src_dec = s.read(1, out_shape=out_shape, resampling=Resampling.average)
         ref_dec = r.read(1, out_shape=out_shape, resampling=Resampling.average)
 

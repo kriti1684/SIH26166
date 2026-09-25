@@ -44,6 +44,7 @@ from src.registration.subpixel_ecc import refine_matches_subpixel
 from src.registration.hybrid_transform import HybridTransform
 from src.registration.warp import warp_image_subpixel
 from src.registration.verifier import run_verification
+from src.registration.web_previews import export_raster_preview
 
 
 def parse_args():
@@ -114,7 +115,35 @@ def print_banner():
     """)
 
 
-def run_pipeline(args):
+def _emit_stage(progress_callback, stage_id, title, state, progress_pct, message, details=None):
+    """Publish a compact stage event without changing the standalone CLI flow."""
+    if progress_callback is None:
+        return
+    event = {
+        "stage_id": stage_id,
+        "title": title,
+        "state": state,
+        "progress_pct": progress_pct,
+        "message": message,
+        "details": details or {},
+    }
+    try:
+        progress_callback(event)
+    except Exception as exc:
+        # Dashboard telemetry must not abort a scientific run.
+        print(f"[PROGRESS] Could not publish stage update: {exc}")
+
+
+def _try_export_web_preview(raster_path, output_png):
+    """Best-effort dashboard quicklook; preview failure must not fail registration."""
+    try:
+        return export_raster_preview(raster_path, output_png)
+    except Exception as exc:
+        print(f"[PREVIEW] Could not create {Path(output_png).name}: {exc}")
+        return None
+
+
+def run_pipeline(args, progress_callback=None):
     start_total_time = time.time()
     print_banner()
 
@@ -138,8 +167,11 @@ def run_pipeline(args):
     # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print("\n[STAGE 1/5] Bounding-Box Overlap & Scale Harmonization...")
+    _emit_stage(progress_callback, "stage_1", "Ingest and harmonize", "running", 5,
+                "Inspecting products, preparing sensor data, and finding the common geographic overlap.")
 
     actual_source_path = args.source
+    best_band_info = None
 
     # Hyperspectral band selection if source is IIRS
     if args.sensor_src == "IIRS":
@@ -178,6 +210,39 @@ def run_pipeline(args):
         sensor_ref=args.sensor_ref,
         sensor_src=args.sensor_src
     )
+    stage1_source_preview = diag_dir / "stage_01_source_harmonized.png"
+    stage1_reference_preview = diag_dir / "stage_01_reference_harmonized.png"
+    preview_info = {}
+    stage1_previews = []
+    if progress_callback is not None:
+        for key, raster, preview_path in (
+            ("source", source_cammap, stage1_source_preview),
+            ("reference", ref_cropped, stage1_reference_preview),
+        ):
+            result = _try_export_web_preview(raster, preview_path)
+            if result:
+                preview_info[key] = result
+                stage1_previews.append(preview_path.name)
+    with rasterio.open(source_cammap) as harmonized_ds:
+        harmonized_shape = [harmonized_ds.height, harmonized_ds.width]
+    stage1_details = {
+        "source_file": source_cammap.name,
+        "reference_file": ref_cropped.name,
+        "harmonized_shape_px": harmonized_shape,
+        "gsd_m": harm_meta.get("gsd_harm"),
+        "scale_ratio": harm_meta.get("scale_ratio"),
+        "source_overlap_pct": harm_meta.get("src_overlap_pct"),
+        "reference_overlap_pct": harm_meta.get("ref_overlap_pct"),
+        "orientation": harm_meta.get("orientation"),
+        "selected_iirs_band": best_band_info,
+        "previews": stage1_previews,
+        "preview_dimensions": preview_info,
+        "files_created": [source_cammap.name, ref_cropped.name, "bbox_overlap_meta.json"],
+    }
+    if harm_meta.get("source_native_crop"):
+        stage1_details["files_created"].append(Path(harm_meta["source_native_crop"]).name)
+    _emit_stage(progress_callback, "stage_1", "Ingest and harmonize", "complete", 18,
+                "Both products were georeferenced and prepared on the same overlap grid.", stage1_details)
     print(f"  [OK] Stage 1 finished in {time.time() - t0:.2f}s")
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -185,6 +250,8 @@ def run_pipeline(args):
     # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print("\n[STAGE 2/5] Modality-Invariant Structural Extraction & Coarse Alignment...")
+    _emit_stage(progress_callback, "stage_2", "Structural features and coarse alignment", "running", 20,
+                "Estimating the global shift and along-track drift from the harmonized pair.")
 
     if args.coarse_dx is not None and args.coarse_dy is not None:
         coarse_dx = float(args.coarse_dx)
@@ -206,13 +273,25 @@ def run_pipeline(args):
             source_harmonized_path=source_cammap,
             ref_cropped_path=ref_cropped,
             output_dir=out_dir,
-            structural_method=args.structural_method
+            structural_method=args.structural_method,
+            coarse_method=getattr(args, "coarse_method", "auto")
         )
         coarse_dx = coarse_res["dx"]
         coarse_dy = coarse_res["dy"]
         coarse_conf = coarse_res.get("confidence", 0.5)
 
     print(f"  Coarse Global Shift: dx = {coarse_dx:.2f} px, dy = {coarse_dy:.2f} px (Conf: {coarse_conf:.2f})")
+    stage2_details = {
+        "dx_px": float(coarse_dx),
+        "dy_px": float(coarse_dy),
+        "confidence": float(coarse_conf),
+        "method_used": coarse_res.get("method_used", getattr(args, "coarse_method", "auto")),
+        "drift_model": coarse_res.get("drift_model", {}),
+        "strip_count": len(coarse_res.get("strip_profiles", [])),
+        "files_created": ["coarse_alignment_result.json"],
+    }
+    _emit_stage(progress_callback, "stage_2", "Structural features and coarse alignment", "complete", 35,
+                "Coarse shift and drift estimates are ready to position the tiled matcher.", stage2_details)
     print(f"  [OK] Stage 2 finished in {time.time() - t0:.2f}s")
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -220,6 +299,8 @@ def run_pipeline(args):
     # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print(f"\n[STAGE 3/5] Uniform Spatial Tiled Matching ({args.grid_size[0]}x{args.grid_size[1]}) & ECC...")
+    _emit_stage(progress_callback, "stage_3", "Tiled matching and transform fit", "running", 38,
+                "Finding correspondences in spatial tiles, refining them to subpixel positions, and fitting the deformation model.")
 
     candidate_csv = out_dir / "candidate_matches.csv"
     subpixel_csv = out_dir / "subpixel_tie_points.csv"
@@ -240,6 +321,7 @@ def run_pipeline(args):
     )
 
     # Step 3.2: Sub-Pixel Gauss-Newton ECC Refinement (< 0.2 px) via streaming windowed reads
+    ecc_info = {"success_count": 0}
     if match_info["total_matches"] > 0:
         matches_matrix = np.column_stack([match_info["src_pts"], match_info["ref_pts"]])
         ecc_info = refine_matches_subpixel(
@@ -321,6 +403,19 @@ def run_pipeline(args):
         hybrid_model.layer_params = {"inlier_count": 0, "total_points": 0, "rmse_layer1_affine": 0.0}
         hybrid_model.save(model_json)
 
+    stage3_details = {
+        "candidate_matches": int(match_info.get("total_matches", 0)),
+        "ecc_refined_matches": int(ecc_info.get("success_count", len(refined_matches))),
+        "populated_cells": int(match_info.get("populated_cells", 0)),
+        "spatial_entropy": match_info.get("spatial_entropy"),
+        "inlier_matches": int(len(hybrid_model.src_inliers)) if getattr(hybrid_model, "src_inliers", None) is not None else 0,
+        "transform_stats": getattr(hybrid_model, "layer_params", {}),
+        "files_created": [candidate_csv.name, subpixel_csv.name, model_json.name],
+    }
+    if (out_dir / "tie_points_inliers.csv").exists():
+        stage3_details["files_created"].append("tie_points_inliers.csv")
+    _emit_stage(progress_callback, "stage_3", "Tiled matching and transform fit", "complete", 63,
+                "Candidate matches, subpixel refinements, and the hybrid transform model are ready for warping.", stage3_details)
     print(f"  [OK] Stage 3 finished in {time.time() - t0:.2f}s")
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -328,6 +423,8 @@ def run_pipeline(args):
     # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print("\n[STAGE 4/5] High-Precision Sub-Pixel Image Warping...")
+    _emit_stage(progress_callback, "stage_4", "Warp registered product", "running", 65,
+                "Applying the fitted transform to write the registered image on the harmonized reference grid.")
 
     registered_tif = out_dir / "registered_subpixel.tif"
 
@@ -360,6 +457,35 @@ def run_pipeline(args):
             )
         except Exception as e:
             print(f"  [WARP] Warning: Native export encountered an issue: {e}")
+    registered_preview = diag_dir / "registered_preview.png"
+    registered_preview_info = None
+    stage4_files = [registered_tif.name, "warp_composite_overlay.png"]
+    native_tifs = sorted(out_dir.glob("registered_native_*m.tif"))
+    if progress_callback is not None:
+        registered_preview_info = _try_export_web_preview(registered_tif, registered_preview)
+        if registered_preview_info:
+            stage4_files.append(registered_preview.name)
+        for native_tif in native_tifs:
+            native_preview = diag_dir / f"{native_tif.stem}_preview.png"
+            if _try_export_web_preview(native_tif, native_preview):
+                stage4_files.append(native_preview.name)
+            stage4_files.append(native_tif.name)
+    with rasterio.open(registered_tif) as registered_ds:
+        registered_details = {
+            "width_px": registered_ds.width,
+            "height_px": registered_ds.height,
+            "crs": registered_ds.crs.to_string() if registered_ds.crs else None,
+            "pixel_size_x": abs(registered_ds.transform.a),
+            "pixel_size_y": abs(registered_ds.transform.e),
+        }
+    _emit_stage(progress_callback, "stage_4", "Warp registered product", "complete", 80,
+                "Registered GeoTIFF and browser-sized quicklook are ready for verification.", {
+                    **registered_details,
+                    "preview": registered_preview.name if registered_preview_info else None,
+                    "preview_dimensions": registered_preview_info,
+                    "native_export_requested": bool(getattr(args, "export_native", False)),
+                    "files_created": stage4_files,
+                })
     print(f"  [OK] Stage 4 finished in {time.time() - t0:.2f}s")
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -367,6 +493,8 @@ def run_pipeline(args):
     # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print("\n[STAGE 5/5] Multi-Pillar Scientific Verification & Diagnostics...")
+    _emit_stage(progress_callback, "stage_5", "Verify and summarize", "running", 82,
+                "Computing registration quality metrics and compact visual diagnostics.")
 
     if not args.skip_verify:
         metrics = run_verification(
@@ -382,6 +510,18 @@ def run_pipeline(args):
         print("  [INFO] Verification stage skipped by user request.")
         metrics = {"verdict": "UNVERIFIED"}
 
+    stage5_details = {
+        "metrics": {key: value for key, value in metrics.items() if key not in {"registered_raster", "reference_raster"}},
+        "files_created": [
+            "diagnostics/verification_metrics.json",
+            "diagnostics/registration_verification.png",
+            "diagnostics/difference_heatmap.png",
+            "diagnostics/overview_side_by_side.png",
+            "diagnostics/overview_false_color.png",
+        ] if not args.skip_verify else [],
+    }
+    _emit_stage(progress_callback, "stage_5", "Verify and summarize", "complete", 97,
+                "Verification finished; inspect the verdict, metrics, and diagnostic previews.", stage5_details)
     print(f"  [OK] Stage 5 finished in {time.time() - t0:.2f}s")
 
     total_elapsed = time.time() - start_total_time

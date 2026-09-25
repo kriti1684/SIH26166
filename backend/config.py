@@ -18,6 +18,7 @@ for _d in (UPLOADS_DIR, OUTPUTS_DIR, PREVIEWS_DIR):
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{STORAGE_DIR / 'lunar_reg.db'}")
 CELERY_BROKER_URL    = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+MAX_JOB_UPLOAD_BYTES = int(os.getenv("MAX_JOB_UPLOAD_BYTES", str(20 * 1024**3)))
 
 PROJECT_NAME = "ChandaShakti"
 VERSION      = "2.0.0"

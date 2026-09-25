@@ -106,7 +106,9 @@ def generate_verification_plots(
     pts_src: Optional[np.ndarray],
     pts_ref: Optional[np.ndarray],
     diag_dir: Path,
-    full_shape: Optional[Tuple[int, int]] = None
+    full_shape: Optional[Tuple[int, int]] = None,
+    verdict_override: Optional[str] = None,
+    metrics_are_measured: bool = True,
 ) -> Tuple[Path, Path]:
     """
     Generates:
@@ -235,7 +237,7 @@ def generate_verification_plots(
     ax_card.axis("off")
 
     rmse_val = res_stats["rmse_px"]
-    verdict = "VERIFIED_SUCCESS" if rmse_val < 0.50 and res_stats["inlier_count"] >= 15 else ("UNCERTAIN" if rmse_val < 1.0 else "REJECTED")
+    verdict = verdict_override or ("VERIFIED_SUCCESS" if rmse_val < 0.50 and res_stats["inlier_count"] >= 15 else ("UNCERTAIN" if rmse_val < 1.0 else "REJECTED"))
     verdict_color = "#00ff88" if "VERIFIED" in verdict else ("#ffaa00" if verdict == "UNCERTAIN" else "#ff4444")
 
     kpi_text = (
@@ -243,6 +245,7 @@ def generate_verification_plots(
         f"  UNIVERSAL SUB-PIXEL REGISTRATION ENGINE  \n"
         f"═══════════════════════════════════════════\n\n"
         f"  • OVERALL VERDICT:        {verdict}\n"
+        f"  • METRIC BASIS:           {'tie-point model residuals' if metrics_are_measured else 'fallback estimate; not verified'}\n"
         f"  • SUB-PIXEL RMSE:         {rmse_val:.3f} px\n"
         f"  • TARGET (<0.5 px):       {'PASSED [OK]' if rmse_val < 0.5 else 'FAILED'}\n"
         f"  • SUB-PIXEL (<0.2 px):    {'ACHIEVED [EXCELLENT]' if rmse_val < 0.2 else 'APPROACHING'}\n"
@@ -275,10 +278,10 @@ def generate_overview_visualizations(
     """
     try:
         with rasterio.open(registered_path) as s_ds, rasterio.open(ref_path) as r_ds:
-            ds = max(1, s_ds.height // 1200)
-            h = max(8, s_ds.height // ds)
-            w_s = max(8, s_ds.width // ds)
-            w_r = max(8, r_ds.width // ds)
+            scale = min(1.0, 1200.0 / max(s_ds.width, s_ds.height, r_ds.width, r_ds.height))
+            h = max(8, int(round(s_ds.height * scale)))
+            w_s = max(8, int(round(s_ds.width * scale)))
+            w_r = max(8, int(round(r_ds.width * scale)))
             s = s_ds.read(1, out_shape=(h, w_s), resampling=Resampling.bilinear).astype(np.float32)
             r = r_ds.read(1, out_shape=(h, w_r), resampling=Resampling.bilinear).astype(np.float32)
 
@@ -335,10 +338,16 @@ def run_verification(
 
     with rasterio.open(ref_path) as ref_ds, rasterio.open(registered_path) as reg_ds:
         ref_w, ref_h = ref_ds.width, ref_ds.height
+        reference_gsd_m = None
+        try:
+            if ref_ds.crs and ref_ds.crs.is_projected and ref_ds.crs.linear_units.lower() in {"metre", "meter", "m"}:
+                reference_gsd_m = (abs(ref_ds.transform.a) + abs(ref_ds.transform.e)) / 2.0
+        except Exception:
+            reference_gsd_m = None
 
         # Read decimated overviews for global difference analysis
-        decimation = max(1, min(ref_w, ref_h) // 1024)
-        out_shape = (1, max(1, ref_h // decimation), max(1, ref_w // decimation))
+        preview_scale = min(1.0, 1024.0 / max(ref_w, ref_h))
+        out_shape = (1, max(1, int(round(ref_h * preview_scale))), max(1, int(round(ref_w * preview_scale))))
         ref_thumb = ref_ds.read(1, out_shape=out_shape, resampling=Resampling.bilinear)
         reg_thumb = reg_ds.read(1, out_shape=out_shape, resampling=Resampling.bilinear)
 
@@ -379,6 +388,7 @@ def run_verification(
     model_json_path = hybrid_model_json or (output_dir / "hybrid_transform_model.json")
     model_stats = {}
     model = None
+    model_prediction_valid = True
     if Path(model_json_path).exists():
         try:
             with open(model_json_path, "r") as f:
@@ -436,6 +446,7 @@ def run_verification(
         except Exception as e:
             print(f"  [VERIFY] Warning during model prediction evaluation: {e}")
             pred_ref_pts = pts_ref.copy()  # Fallback
+            model_prediction_valid = False
             
         res_stats = compute_subpixel_residuals(pts_src, pts_ref, pred_ref_pts)
         if model_stats.get("total_points") is not None and model_stats.get("total_points") > 0:
@@ -465,6 +476,9 @@ def run_verification(
             "dy": np.zeros(model_stats.get("inlier_count", 25)),
             "residuals": np.zeros((model_stats.get("inlier_count", 25), 2))
         }
+
+    has_tie_point_evidence = pts_src is not None and pts_ref is not None and len(pts_src) >= 3
+    metrics_are_measured = bool(has_tie_point_evidence and model_prediction_valid)
 
     # 2. Spatial Entropy H(S)
     if pts_ref is not None and len(pts_ref) > 0:
@@ -527,18 +541,30 @@ def run_verification(
         else:
             verdict = "UNCERTAIN"
 
+    if not metrics_are_measured:
+        verdict = "UNCERTAIN (No valid tie-point model residuals)"
+
     # 4. Generate Visual Deliverables (Heatmaps & Dashboards)
-    generate_verification_plots(reg_thumb, ref_thumb, res_stats, pts_src, pts_ref, diag_dir, full_shape=(ref_h, ref_w))
+    generate_verification_plots(
+        reg_thumb, ref_thumb, res_stats, pts_src, pts_ref, diag_dir,
+        full_shape=(ref_h, ref_w), verdict_override=verdict,
+        metrics_are_measured=metrics_are_measured,
+    )
 
     # 5. Compile Deliverables Report
     metrics_report = {
         "verdict": verdict,
+        "metrics_are_measured": metrics_are_measured,
+        "metric_provenance": "tie_point_model_residuals" if metrics_are_measured else "fallback_estimate",
+        "verification_warnings": [] if metrics_are_measured else ["No valid tie-point model residuals; numeric fallback values are estimates and must not be treated as verified precision."],
         "composite_scientific_confidence": round(composite_confidence, 4),
         "rmse_px": res_stats["rmse_px"],
+        "rmse_meters": round(res_stats["rmse_px"] * reference_gsd_m, 4) if metrics_are_measured and reference_gsd_m is not None else None,
+        "reference_gsd_m": round(reference_gsd_m, 6) if reference_gsd_m is not None else None,
         "rmse_baseline_drift_px": res_stats.get("rmse_baseline_drift_px", res_stats["rmse_px"]),
         "rmse_tps_cv_px": res_stats.get("rmse_tps_cv_px"),
-        "rmse_subpixel_target_met": bool(rmse_val < target_rmse_threshold),
-        "subpixel_precision_tier": "< 0.2 px" if rmse_val < 0.2 else ("< 0.5 px" if rmse_val < 0.5 else "< 1.0 px"),
+        "rmse_subpixel_target_met": bool(metrics_are_measured and rmse_val < target_rmse_threshold),
+        "subpixel_precision_tier": ("< 0.2 px" if rmse_val < 0.2 else ("< 0.5 px" if rmse_val < 0.5 else "< 1.0 px")) if metrics_are_measured else "not assessed",
         "mean_error_px": res_stats["mean_err_px"],
         "max_error_px": res_stats["max_err_px"],
         "median_dx_px": res_stats["median_dx_px"],

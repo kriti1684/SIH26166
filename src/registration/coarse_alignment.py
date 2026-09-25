@@ -320,6 +320,7 @@ def run_coarse_alignment(
     patch_size: int = FFT_PATCH_SIZE,
     num_strips: int = 10,
     structural_method: str = "phase_congruency",
+    coarse_method: str = "auto",
     min_crater_votes: int = 4,
     agreement_thresh: float = float(METHOD_AGREEMENT_THRESH_PX)
 ) -> Dict[str, Any]:
@@ -344,12 +345,17 @@ def run_coarse_alignment(
     print(f"  Source: {source_harmonized_path.name}")
     print(f"  Ref:    {ref_cropped_path.name}")
 
-    # Primary Solver: Global Thumbnail LoFTR coarse alignment (~3 seconds, handles up to 5000px offsets)
-    loftr_coarse = estimate_global_thumbnail_drift(source_harmonized_path, ref_cropped_path)
-    if loftr_coarse is not None:
-        with open(result_path, "w") as f:
-            json.dump(loftr_coarse, f, indent=2)
-        return loftr_coarse
+    if coarse_method not in {"auto", "fft", "crater"}:
+        raise ValueError("coarse_method must be one of: auto, fft, crater")
+
+    # Auto uses the fast global thumbnail first; explicit methods use the
+    # strip profiler so the requested solver is actually honored.
+    if coarse_method == "auto":
+        loftr_coarse = estimate_global_thumbnail_drift(source_harmonized_path, ref_cropped_path)
+        if loftr_coarse is not None:
+            with open(result_path, "w") as f:
+                json.dump(loftr_coarse, f, indent=2)
+            return loftr_coarse
 
     # Fallback Solver (Tier 2 & 3): Multi-strip vertical profiling with Decimated FFT Anchor
     print("  [COARSE-ALIGN] LoFTR thumbnail unavailable or insufficient matches; running multi-strip vertical profiling...")
@@ -415,14 +421,19 @@ def run_coarse_alignment(
             # Method A: FFT Phase Correlation
             dx_fft, dy_fft, fft_resp = phase_correlation_coarse(src_structural, ref_structural, patch_size)
             
-            # Method B: Crater Rim Consensus
-            eff_max_offset = min(1500, max(500, int(h * 0.08)))
-            dx_c, dy_c, c_votes, _ = crater_rim_consensus_voting(src_clahe, ref_clahe, max_offset=eff_max_offset)
+            # Method B: Crater Rim Consensus. FFT-only mode skips this work.
+            dx_c, dy_c, c_votes = None, None, 0
+            if coarse_method in {"auto", "crater"}:
+                eff_max_offset = min(1500, max(500, int(h * 0.08)))
+                dx_c, dy_c, c_votes, _ = crater_rim_consensus_voting(src_clahe, ref_clahe, max_offset=eff_max_offset)
             
             # Selection
             final_dx, final_dy = dx_fft, dy_fft
             method_used = "fft"
-            if dx_c is not None and c_votes >= min_crater_votes:
+            if coarse_method == "crater" and dx_c is not None and c_votes >= min_crater_votes:
+                final_dx, final_dy = dx_c, dy_c
+                method_used = "crater_voting"
+            elif dx_c is not None and c_votes >= min_crater_votes:
                 dist = math.hypot(dx_fft - dx_c, dy_fft - dy_c)
                 if dist <= agreement_thresh:
                     final_dx, final_dy = dx_c, dy_c
@@ -498,6 +509,7 @@ def run_coarse_alignment(
             "dx_intercept": float(dx_intercept)
         },
         "strip_profiles": strip_profiles,
+        "method_used": "strip_profile_crater_voting" if any("crater_voting" in sp["method_used"] for sp in strip_profiles) else "strip_profile_fft",
         "source": str(source_harmonized_path),
         "reference": str(ref_cropped_path)
     }

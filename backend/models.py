@@ -39,6 +39,7 @@ class RegistrationJob(Base):
     wac_band            = Column(Integer,   default=7)
     grid_rows           = Column(Integer,   default=4)
     grid_cols           = Column(Integer,   default=4)
+    run_config_json     = Column(JSON, nullable=True)
 
     created_at    = Column(DateTime(timezone=True), default=_utcnow)
     started_at    = Column(DateTime(timezone=True), nullable=True)
@@ -48,6 +49,7 @@ class RegistrationJob(Base):
     progress_pct  = Column(Integer, default=0)
     current_stage = Column(String(128), nullable=True)
     error_message = Column(Text, nullable=True)
+    stage_events_json = Column(JSON, nullable=True)
 
     output_dir           = Column(String(1024), nullable=True)
     registered_tif_path  = Column(String(1024), nullable=True)
