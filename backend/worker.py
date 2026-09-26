@@ -1,31 +1,22 @@
-"""Celery worker that runs the lunar registration pipeline and persists progress."""
+"""Background worker that runs the lunar registration pipeline and persists progress."""
 import json
 import os
-import sys
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from celery import Celery
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
-from backend.config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, OUTPUTS_DIR, PREVIEWS_DIR
+from backend.config import OUTPUTS_DIR, PREVIEWS_DIR
 from backend.database import SessionLocal
 from backend.models import JobStatus, RegistrationJob
 from src.registration.web_previews import export_raster_preview
-
-
-celery_app = Celery("lunar_reg", broker=CELERY_BROKER_URL, backend=CELERY_RESULT_BACKEND)
-celery_app.conf.update(
-    task_serializer="json", result_serializer="json", accept_content=["json"],
-    timezone="UTC", enable_utc=True, task_track_started=True,
-    worker_prefetch_multiplier=1, task_soft_time_limit=7200, task_time_limit=7800,
-)
+from run_pipeline import run_pipeline as pipeline
 
 
 def _update_job(db, job_id, **kwargs):
@@ -59,8 +50,7 @@ def _safe_metrics(metrics: dict) -> dict:
     return result
 
 
-@celery_app.task(bind=True, name="backend.worker.run_registration_pipeline")
-def run_registration_pipeline(self, job_id: str, params: dict):
+def run_registration_pipeline(job_id: str, params: dict):
     db = SessionLocal()
     job_out_dir = OUTPUTS_DIR / job_id
     job_out_dir.mkdir(parents=True, exist_ok=True)
@@ -69,7 +59,7 @@ def run_registration_pipeline(self, job_id: str, params: dict):
             db,
             job_id,
             status=JobStatus.PROCESSING,
-            celery_task_id=self.request.id,
+            celery_task_id=f"local-{job_id[:8]}",
             started_at=datetime.now(timezone.utc),
             current_stage="Preparing pipeline",
             progress_pct=1,
@@ -101,8 +91,6 @@ def run_registration_pipeline(self, job_id: str, params: dict):
 
         def publish_stage(event):
             _append_stage_event(db, job_id, event)
-
-        from run_pipeline import run_pipeline as pipeline
 
         pipeline(args, progress_callback=publish_stage)
         wall_time = (datetime.now(timezone.utc) - start).total_seconds()

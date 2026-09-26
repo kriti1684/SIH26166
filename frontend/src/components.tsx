@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, ReactNode } from 'react'
 import type { ArtifactInfo, PipelineStageEvent } from './types'
 import { apiUrl } from './api'
@@ -124,7 +124,7 @@ export function StageCard({
       </div>}
       {event?.details && <StageDetails details={event.details} />}
       {previews.length > 0 && <div className="preview-grid">{previews.map((artifact) => <figure className="artifact-preview" key={artifact.artifact_id}>
-        <a href={apiUrl(artifact.preview_url!)} target="_blank" rel="noreferrer" title="Open quicklook full size"><img loading="lazy" src={apiUrl(artifact.preview_url!)} alt={artifact.file_name} /></a>
+        <div className="artifact-preview-wrap"><img loading="lazy" src={apiUrl(artifact.preview_url!)} alt={artifact.file_name} /></div>
         <figcaption><span>{artifact.file_name}</span><a href={apiUrl(artifact.download_url)} download title="Download preview"><Mark name="download" size={14} /></a></figcaption>
       </figure>)}</div>}
       {previewArtifacts.length > 4 && <button type="button" className="show-more" onClick={() => setShowAllPreviews((value) => !value)}>{showAllPreviews ? 'Show fewer previews' : `Show ${previewArtifacts.length - 4} more previews`}</button>}
@@ -180,7 +180,7 @@ export function formatMetric(value: unknown, precision = 3): string {
   return '—'
 }
 
-function StageDetails({ details }: { details: Record<string, unknown> }) {
+export function StageDetails({ details }: { details: Record<string, unknown> }) {
   const ignored = new Set(['previews', 'preview', 'preview_dimensions', 'files_created', 'metrics'])
   const entries = Object.entries(details).filter(([key, value]) => !ignored.has(key) && value !== null && value !== undefined)
   if (!entries.length) return null
@@ -198,4 +198,118 @@ function displayDetail(value: unknown): ReactNode {
     return <span className="detail-object">{Object.entries(value as Record<string, unknown>).slice(0, 4).map(([key, item]) => `${key.replaceAll('_', ' ')}: ${displayDetail(item)}`).join(' · ')}</span>
   }
   return String(value)
+}
+
+export function ImageLightbox({
+  list,
+  index,
+  onClose,
+  onNavigate,
+}: {
+  list: ArtifactInfo[]
+  index: number
+  onClose: () => void
+  onNavigate: (newIndex: number) => void
+}) {
+  const current = list[index]
+  const hasPrev = index > 0
+  const hasNext = index < list.length - 1
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+      else if (e.key === 'ArrowLeft' && hasPrev) onNavigate(index - 1)
+      else if (e.key === 'ArrowRight' && hasNext) onNavigate(index + 1)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [index, hasPrev, hasNext, onClose, onNavigate])
+
+  if (!current || !current.preview_url) return null
+
+  return (
+    <div className="image-lightbox-overlay" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
+        {/* Topbar */}
+        <div className="lightbox-header">
+          <div className="lightbox-meta">
+            <span className="lightbox-badge">
+              <Mark name="image" size={14} />
+              <span>{list.length > 1 ? `${index + 1} of ${list.length}` : 'Preview'}</span>
+            </span>
+            <span className="lightbox-filename" title={current.file_name}>
+              {current.file_name}
+            </span>
+          </div>
+          <div className="lightbox-actions">
+            <a
+              href={apiUrl(current.download_url)}
+              download
+              className="lightbox-btn"
+              title="Download image file"
+            >
+              <Mark name="download" size={15} />
+              <span>Download</span>
+            </a>
+            <button
+              type="button"
+              className="lightbox-btn close-btn"
+              onClick={onClose}
+              title="Close full-screen preview (Esc)"
+            >
+              <Mark name="x" size={17} />
+              <span className="kbd-shortcut">ESC</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Center Image */}
+        <div className="lightbox-body">
+          {hasPrev && (
+            <button
+              type="button"
+              className="lightbox-nav-btn prev"
+              onClick={() => onNavigate(index - 1)}
+              title="Previous image (← Arrow key)"
+              aria-label="Previous image"
+            >
+              <Mark name="arrow" size={20} />
+            </button>
+          )}
+
+          <div className="lightbox-img-container">
+            <img
+              src={apiUrl(current.preview_url)}
+              alt={current.file_name}
+              className="lightbox-main-img"
+            />
+          </div>
+
+          {hasNext && (
+            <button
+              type="button"
+              className="lightbox-nav-btn next"
+              onClick={() => onNavigate(index + 1)}
+              title="Next image (→ Arrow key)"
+              aria-label="Next image"
+            >
+              <Mark name="arrow" size={20} />
+            </button>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="lightbox-footer">
+          <span className="lightbox-stage-pill">{current.stage.toUpperCase().replace('_', ' ')}</span>
+          <span className="lightbox-path">{current.relative_path}</span>
+          <span className="lightbox-size">{formatBytes(current.size_bytes)}</span>
+        </div>
+      </div>
+    </div>
+  )
 }

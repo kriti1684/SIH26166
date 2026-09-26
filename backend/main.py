@@ -27,15 +27,11 @@ def read_root():
 @app.get("/health")
 def check_health():
     import torch
-    try:
-        from backend.worker import celery_app
-        celery_app.control.ping(timeout=1.0)
-        celery_status = "OK"
-    except Exception:
-        celery_status = "UNREACHABLE"
     return {
-        "status": "online", "version": VERSION, "db": DATABASE_URL.split(":")[0],
-        "celery_queue": celery_status,
+        "status": "online",
+        "version": VERSION,
+        "db": DATABASE_URL.split(":")[0],
+        "celery_queue": "in-process",
         "gpu_available": torch.cuda.is_available(),
-        "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
+        "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
     }

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -91,6 +91,7 @@ async def create_registration_job(
     grid_rows: int = Form(4, ge=1, le=16),
     grid_cols: int = Form(4, ge=1, le=16),
     export_native: bool = Form(False),
+    background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
     """Upload two products (plus optional sidecars) and enqueue the full pipeline."""
@@ -189,17 +190,16 @@ async def create_registration_job(
         "source_files": [str(path) for path in saved["source"]],
         "reference_files": [str(path) for path in saved["reference"]],
     }
-    try:
-        task = run_registration_pipeline.delay(job_id=job.id, params=params)
-        job.celery_task_id = task.id
-        db.commit()
-        db.refresh(job)
-    except Exception as exc:
-        job.status = JobStatus.FAILED
-        job.error_message = f"Could not enqueue pipeline task: {exc}"
-        job.completed_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(job)
+    job.celery_task_id = f"local-{job.id[:8]}"
+    db.commit()
+    db.refresh(job)
+
+    if background_tasks is not None:
+        background_tasks.add_task(run_registration_pipeline, job_id=job.id, params=params)
+    else:
+        # Fallback if called directly outside FastAPI request context
+        import threading
+        threading.Thread(target=run_registration_pipeline, args=(job.id, params), daemon=True).start()
 
     return _to_job_detail(job)
 
@@ -298,7 +298,7 @@ def _artifact_stage(relative_path: str) -> tuple[str, str]:
         return "stage_1", "harmonization"
     if "coarse_alignment" in name:
         return "stage_2", "coarse_alignment"
-    if any(token in normalized for token in ("match_visualizations", "tile_pngs")) or name in {
+    if any(token in normalized for token in ("match_visualizations", "tile_pngs")) or "matches" in name or name in {
         "candidate_matches.csv", "subpixel_tie_points.csv", "tie_points_inliers.csv", "hybrid_transform_model.json"
     }:
         return "stage_3", "matching"
@@ -334,6 +334,7 @@ def _artifact_manifest(job_id: str) -> List[Dict[str, Any]]:
             media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             preview_suffix = path.suffix.lower() in {".png", ".jpg", ".jpeg"}
             preview_name = path.name.lower()
+            normalized = relative.lower().replace("\\", "/")
             bounded_preview = (
                 preview_name.startswith("stage_01_")
                 or preview_name.endswith("_preview.png")
@@ -345,7 +346,14 @@ def _artifact_manifest(job_id: str) -> List[Dict[str, Any]]:
                     "overview_false_color.png",
                 }
             )
-            previewable = preview_suffix and bounded_preview and path.stat().st_size <= 8 * 1024 * 1024
+            # In Stage 3, preview all match visualization images (only match images, excluding raw tile pngs)
+            is_stage_3_match = (stage == "stage_3") and (
+                "match_visualizations" in normalized
+                or "matches" in preview_name
+                or preview_name.endswith("_matches.png")
+            )
+            is_previewable_name = is_stage_3_match if stage == "stage_3" else bounded_preview
+            previewable = preview_suffix and is_previewable_name and path.stat().st_size <= 8 * 1024 * 1024
             base = f"/api/v1/jobs/{job_id}/artifacts/{artifact_id}"
             artifacts.append({
                 "artifact_id": artifact_id,

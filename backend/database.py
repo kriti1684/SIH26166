@@ -1,13 +1,21 @@
 """
 Database configuration using SQLAlchemy.
 """
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, text, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from backend.config import DATABASE_URL
 
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
 engine = create_engine(DATABASE_URL, connect_args=_connect_args)
+
+@event.listens_for(engine, 'connect')
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    if DATABASE_URL.startswith('sqlite'):
+        cursor = dbapi_connection.cursor()
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA synchronous=NORMAL')
+        cursor.close()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 class Base(DeclarativeBase):
