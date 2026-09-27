@@ -11,7 +11,10 @@ from rasterio.windows import Window
 DEFAULT_PATCH_SIZE = 64
 ECC_MAX_ITER = 50
 ECC_EPSILON = 1e-4
-MIN_ECC_SCORE = 0.60  # Minimum acceptable correlation score (rho)
+MIN_ECC_SCORE = 0.60  # Default minimum acceptable correlation score (rho)
+# Note: For cross-sensor pairs (e.g. OHRC vs NAC, TMC vs WAC), radiometric
+# differences cause inherently lower ECC scores (0.40-0.60 range). Use
+# min_ecc_score=0.45 when calling refine_matches_subpixel for such pairs.
 
 
 def refine_matches_subpixel(
@@ -19,7 +22,8 @@ def refine_matches_subpixel(
     ref_img: Union[np.ndarray, str, Path],
     matches: np.ndarray,
     output_csv: Path,
-    patch_size: int = DEFAULT_PATCH_SIZE
+    patch_size: int = DEFAULT_PATCH_SIZE,
+    min_ecc_score: float = MIN_ECC_SCORE
 ) -> Dict[str, Any]:
     """
     Refines candidate tie points using continuous closed-form ECC maximization.
@@ -30,7 +34,10 @@ def refine_matches_subpixel(
         matches: Array of shape (N, 4) with columns [src_x, src_y, ref_x, ref_y]
         output_csv: Path to save the refined sub-pixel matches
         patch_size: Size of the local patch to extract around each point
-        
+        min_ecc_score: Minimum ECC/phase-correlation score to accept a refined point.
+                       Use 0.45 for cross-sensor pairs (e.g. OHRC→NAC, TMC→WAC)
+                       and 0.55 for same-sensor pairs. Default 0.60 (same-sensor strict).
+    
     Returns:
         Dictionary containing the refined matches and statistics.
     """
@@ -117,7 +124,7 @@ def refine_matches_subpixel(
                     gaussFiltSize=1
                 )
                 
-                if cc >= MIN_ECC_SCORE:
+                if cc >= min_ecc_score:
                     dx = float(warp_matrix[0, 2])
                     dy = float(warp_matrix[1, 2])
                     refined_rx = irx + dx
@@ -133,7 +140,10 @@ def refine_matches_subpixel(
                 try:
                     hann = cv2.createHanningWindow((patch_size, patch_size), cv2.CV_32F)
                     (sub_dx, sub_dy), resp = cv2.phaseCorrelate(src_patch, ref_patch, hann)
-                    if abs(sub_dx) <= 3.0 and abs(sub_dy) <= 3.0 and resp >= 0.25:
+                    # Phase correlation fallback uses the same min_ecc_score as the ECC path
+                    # so that we don't admit low-quality phase correlation points alongside
+                    # high-quality ECC points with inconsistent effective thresholds.
+                    if abs(sub_dx) <= 3.0 and abs(sub_dy) <= 3.0 and resp >= min_ecc_score:
                         refined_rx = irx + float(sub_dx)
                         refined_ry = iry + float(sub_dy)
                         refined_pts.append([float(isx), float(isy), refined_rx, refined_ry, float(resp)])
@@ -141,7 +151,7 @@ def refine_matches_subpixel(
                 except Exception:
                     pass
                 
-        print(f"  [SUBPIXEL-ECC] Converged for {success_count} / {len(matches)} points (rho >= {MIN_ECC_SCORE}).")
+        print(f"  [SUBPIXEL-ECC] Converged for {success_count} / {len(matches)} points (rho >= {min_ecc_score}).")
         
         if not refined_pts:
             print("  [SUBPIXEL-ECC] WARNING: No points survived sub-pixel refinement!")

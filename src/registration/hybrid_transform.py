@@ -83,7 +83,12 @@ class HybridTransform:
                     # Normalize scale strictly to 1.0 (pure rigid rotation + translation)
                     print(f"  [HYBRID-SAFETY] Clamping scale {s_part:.3f} to 1.0 (Rigid Euclidean baseline).")
                     R = A_part[:, :2] / max(1e-6, s_part)
-                    t = A_part[:, 2:]
+                    # FIX: Recompute translation from inlier centroid after scale clamp.
+                    # Keeping the old t is wrong because it was optimized for s_part != 1.0,
+                    # causing a centroid shift error of ~center_px * (1 - 1/s_part).
+                    src_in_clamp = src_pts[inliers_part.ravel() == 1]
+                    ref_in_clamp = ref_pts[inliers_part.ravel() == 1]
+                    t = np.mean(ref_in_clamp.T - R @ src_in_clamp.T, axis=1).reshape(2, 1)
                     A = np.hstack([R, t])
                     inliers = inliers_part
 
@@ -150,21 +155,36 @@ class HybridTransform:
         if len(src_in) >= 3:
             hull = cv2.convexHull(src_in.astype(np.float32))
             hull_area = cv2.contourArea(hull)
-            # Evaluate coverage relative to the active swath bounds
-            swath_w = max(50.0, float(np.max(src_in[:, 0]) - np.min(src_in[:, 0])))
-            swath_h = max(50.0, float(np.max(src_in[:, 1]) - np.min(src_in[:, 1])))
-            swath_area = swath_w * swath_h
-            coverage_pct = (hull_area / swath_area) * 100.0
-            
-            total_h = float(image_shape[0]) if image_shape is not None else swath_h
-            along_track_span = (swath_h / max(1.0, total_h)) * 100.0
+            # FIX: Evaluate coverage relative to the FULL IMAGE area (image_shape), not
+            # just the bounding box of the inlier points. The old metric guaranteed
+            # coverage_pct < 10% for any cluster narrower than 32% of the swath width,
+            # causing TPS to be permanently bypassed for narrow WAC/IIRS strips.
+            if image_shape is not None:
+                swath_area = float(image_shape[0]) * float(image_shape[1])
+            else:
+                swath_w = max(50.0, float(np.max(src_in[:, 0]) - np.min(src_in[:, 0])))
+                swath_h = max(50.0, float(np.max(src_in[:, 1]) - np.min(src_in[:, 1])))
+                swath_area = swath_w * swath_h
+            coverage_pct = (hull_area / max(1.0, swath_area)) * 100.0
+
+            swath_h_pts = max(50.0, float(np.max(src_in[:, 1]) - np.min(src_in[:, 1])))
+            total_h = float(image_shape[0]) if image_shape is not None else swath_h_pts
+            along_track_span = (swath_h_pts / max(1.0, total_h)) * 100.0
             
         inlier_count = len(src_in)
         
-        # Activate TPS if dense tie points (>=25) span the active swath
-        if inlier_count >= 25 and (coverage_pct >= 20.0 or along_track_span >= 40.0):
-            reg_smoothing = max(0.01, tps_smoothing)
+        # FIX: Relax TPS activation to inlier_count >= 15 and coverage >= 2% (image-relative).
+        # The old threshold (>= 25 inliers AND coverage >= 20%) was unreachable for narrow
+        # WAC/IIRS strips where the mutual overlap is a small fraction of the scene area.
+        if inlier_count >= 15 and (coverage_pct >= 2.0 or along_track_span >= 30.0):
+            # FIX: N-adaptive smoothing. scipy RBFInterpolator smoothing is NOT normalized
+            # by N, so a fixed 0.05 severely over-smooths with N=200+ points (CV RMSE 3x
+            # training), and correctly smooths with N=40. Scale inversely with N/50.
+            n_pts = float(inlier_count)
+            adaptive_smoothing = tps_smoothing / max(1.0, n_pts / 50.0)
+            reg_smoothing = max(0.001, min(adaptive_smoothing, 0.5))
             self.tps_smoothing = reg_smoothing
+            print(f"  [HYBRID-TRANSFORM] TPS smoothing: {tps_smoothing:.4f} (input) -> {reg_smoothing:.4f} (N-adaptive, N={inlier_count})")
             
             # Coordinate normalization for TPS:
             # Prevents ill-conditioned matrix scaling (where r^2 ln(r) reaches 10^7)

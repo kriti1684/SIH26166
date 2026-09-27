@@ -29,7 +29,9 @@ from scipy.stats import linregress
 FFT_PATCH_SIZE = 2048
 
 # Minimum Hough circle confidence for rim detection
-MIN_HOUGH_ACCUM = 40
+# Lowered from 40 to 25: large OHRC images downsampled to coarse resolution
+# have fewer edge votes per crater rim, scoring below 40 on smaller craters.
+MIN_HOUGH_ACCUM = 25
 
 # Minimum radius and max radius for crater rim detection (in pixels)
 CRATER_MIN_RADIUS_PX = 15
@@ -39,7 +41,8 @@ CRATER_MAX_RADIUS_PX = 200
 VOTING_BIN_SIZE = 4
 
 # Max plausible offset range to search (+/- pixels, both axes)
-MAX_OFFSET_SEARCH_PX = 1000
+# Expanded from 1000 to 2000 to cover large along-track drift in long OHRC strips.
+MAX_OFFSET_SEARCH_PX = 2000
 
 # Agreement threshold: methods agree if their estimates are within this many pixels
 METHOD_AGREEMENT_THRESH_PX = 30
@@ -175,11 +178,15 @@ def estimate_global_thumbnail_drift(
     src_path: Path,
     ref_path: Path,
     max_dim: int = 1024,
-    min_inliers: int = 20
+    min_inliers: int = 12
 ) -> Optional[Dict[str, Any]]:
     """
     Fast global coarse alignment on downsampled full-swath thumbnails using LoFTR.
     Absorbs massive along-track and across-track pointing errors (e.g. 500 - 5000 px) in ~3 seconds.
+
+    min_inliers: Minimum LoFTR inliers needed. Lowered from 20 to 12 because cross-sensor
+                 pairs (OHRC vs NAC, TMC vs WAC) produce fewer matches per unit area due
+                 to radiometric and resolution differences.
     Returns:
         dict with dx, dy, confidence, inliers_count, and linear drift model if successful,
         or None if LoFTR is unavailable or finds insufficient matches.
@@ -244,7 +251,12 @@ def estimate_global_thumbnail_drift(
                 dx_slope, dx_int = 0.0, med_dx
 
             mean_conf = float(np.mean(confs[inliers]))
-            if mean_conf < 0.25:
+            # Confidence cutoff lowered from 0.25 to 0.15:
+            # Cross-sensor LoFTR matches have inherently lower confidence due to
+            # radiometric differences. The MAD-based inlier filter already
+            # ensures geometric robustness, so a lower confidence cutoff is safe.
+            if mean_conf < 0.15:
+                print(f"  [COARSE-ALIGN] Thumbnail LoFTR low confidence ({mean_conf:.2f} < 0.15), falling back to strip profiling.")
                 return None
 
             print(f"  [COARSE-ALIGN] Global Thumbnail LoFTR locked: dx={med_dx:.1f}, dy={med_dy:.1f} ({inl_count}/{len(pts_s)} inliers, conf={mean_conf:.2f})")

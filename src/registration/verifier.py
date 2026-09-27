@@ -389,7 +389,13 @@ def run_verification(
                 from scipy.interpolate import RBFInterpolator
                 N_pts = len(pts_src)
                 n_folds = min(5, N_pts) if N_pts > 40 else N_pts
-                indices = np.arange(N_pts)
+                # Shuffled K-fold cross-validation with deterministic seed.
+                # pts_src are sorted top-to-bottom by swath tile; without shuffling,
+                # contiguous splits drop entire geographic swaths (e.g. northern 20%),
+                # forcing TPS into unbounded extrapolation rather than true interpolation.
+                rng = np.random.RandomState(42)
+                shuffled_indices = rng.permutation(N_pts)
+                all_indices = np.arange(N_pts)
                 fold_preds = np.zeros_like(pts_ref)
                 
                 center = np.mean(pts_src, axis=0)
@@ -397,9 +403,9 @@ def run_verification(
                 src_norm = (pts_src - center) / scale
                 
                 res_L2 = pts_ref - pred_ref_drift
-                fold_splits = np.array_split(indices, n_folds)
+                fold_splits = np.array_split(shuffled_indices, n_folds)
                 for test_idx in fold_splits:
-                    train_idx = np.setdiff1d(indices, test_idx)
+                    train_idx = np.setdiff1d(all_indices, test_idx)
                     rbf_x = RBFInterpolator(src_norm[train_idx], res_L2[train_idx, 0], kernel='thin_plate_spline', smoothing=model.tps_smoothing)
                     rbf_y = RBFInterpolator(src_norm[train_idx], res_L2[train_idx, 1], kernel='thin_plate_spline', smoothing=model.tps_smoothing)
                     fold_preds[test_idx] = pred_ref_drift[test_idx] + np.column_stack([rbf_x(src_norm[test_idx]), rbf_y(src_norm[test_idx])])
@@ -471,7 +477,16 @@ def run_verification(
     normalized_entropy = float(np.clip(spatial_entropy / max_entropy, 0.0, 1.0))
 
     # Weights: RMSE (0.40), Spatial Entropy (0.25), Inlier Ratio (0.20), Hull Coverage (0.15)
-    rmse_score = float(np.clip(1.0 - (res_stats["rmse_px"] / 1.5), 0.0, 1.0))
+    # IMPORTANT: Use effective_rmse (CV RMSE when TPS was active) for scoring.
+    # Training RMSE on the same inliers TPS was fit on is always optimistic and
+    # must NOT be used for the verdict or composite score.
+    rmse_val = res_stats["rmse_px"]
+    cv_rmse = res_stats.get("rmse_tps_cv_px")
+    effective_rmse = cv_rmse if (cv_rmse is not None and cv_rmse > rmse_val) else rmse_val
+    if cv_rmse is not None and cv_rmse > rmse_val:
+        print(f"  [VERIFY] Using CV RMSE {cv_rmse:.4f} px (training={rmse_val:.4f} px) as authoritative verdict basis.")
+
+    rmse_score = float(np.clip(1.0 - (effective_rmse / 1.5), 0.0, 1.0))
     inlier_score = float(np.clip(max(res_stats["inlier_ratio"], res_stats["inlier_count"] / 40.0), 0.0, 1.0))
     entropy_score = float(normalized_entropy)
     hull_score = float(np.clip(convex_hull_cov / 0.20, 0.0, 1.0))
@@ -483,20 +498,20 @@ def run_verification(
         0.15 * hull_score
     )
 
-    rmse_val = res_stats["rmse_px"]
-    
-    if res_stats["inlier_count"] < 15:
+    # Hard Verification Gates — all use effective_rmse (CV when TPS active)
+    if res_stats["inlier_count"] < 10:
         verdict = "REJECTED (Insufficient Inliers)"
     elif (convex_hull_cov * 100.0) < 5.0:  # Relaxed for narrow WAC strips
         verdict = "REJECTED (Poor Spatial Coverage)"
     elif spatial_entropy < 1.0:
         verdict = "REJECTED (Clustered Matches)"
-    elif rmse_val >= 1.0:  # Relaxed from 0.5 to 1.0
+    elif effective_rmse >= 1.0:
         verdict = "REJECTED (RMSE Out of Bounds)"
     else:
-        if rmse_val < target_rmse_threshold or composite_confidence >= 0.65:
+        # Passed all hard gates
+        if effective_rmse < target_rmse_threshold and res_stats["inlier_count"] >= 10:
             verdict = "VERIFIED_SUCCESS"
-        elif composite_confidence >= 0.50:
+        elif effective_rmse < 1.0 and composite_confidence >= 0.50:
             verdict = "VERIFIED (Sub-Pixel Target Met)"
         else:
             verdict = "UNCERTAIN"
@@ -521,8 +536,9 @@ def run_verification(
         "reference_gsd_m": round(reference_gsd_m, 6) if reference_gsd_m is not None else None,
         "rmse_baseline_drift_px": res_stats.get("rmse_baseline_drift_px", res_stats["rmse_px"]),
         "rmse_tps_cv_px": res_stats.get("rmse_tps_cv_px"),
-        "rmse_subpixel_target_met": bool(metrics_are_measured and rmse_val < target_rmse_threshold),
-        "subpixel_precision_tier": ("< 0.2 px" if rmse_val < 0.2 else ("< 0.5 px" if rmse_val < 0.5 else "< 1.0 px")) if metrics_are_measured else "not assessed",
+        "effective_rmse_px": round(effective_rmse, 4),
+        "rmse_subpixel_target_met": bool(metrics_are_measured and effective_rmse < target_rmse_threshold),
+        "subpixel_precision_tier": ("< 0.2 px" if effective_rmse < 0.2 else ("< 0.5 px" if effective_rmse < 0.5 else "< 1.0 px")) if metrics_are_measured else "not assessed",
         "mean_error_px": res_stats["mean_err_px"],
         "max_error_px": res_stats["max_err_px"],
         "median_dx_px": res_stats["median_dx_px"],

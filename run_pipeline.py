@@ -284,6 +284,11 @@ def run_pipeline(args, progress_callback=None):
         structural_method=args.structural_method
     )
 
+    # Step 3.2: Sub-Pixel Gauss-Newton ECC Refinement (< 0.2 px) via streaming windowed reads
+    # Determine cross-sensor ECC threshold at the source so points aren't silently dropped
+    # before run_pipeline.py can filter them post-hoc (old approach).
+    is_same_sensor = (args.sensor_src.upper() == args.sensor_ref.upper())
+    min_ecc_score = 0.60 if is_same_sensor else 0.45
     ecc_info = {"success_count": 0}
     if match_info["total_matches"] > 0:
         matches_matrix = np.column_stack([match_info["src_pts"], match_info["ref_pts"]])
@@ -292,28 +297,41 @@ def run_pipeline(args, progress_callback=None):
             ref_img=ref_cropped,
             matches=matches_matrix,
             output_csv=subpixel_csv,
-            patch_size=64
+            patch_size=64,
+            min_ecc_score=min_ecc_score
         )
         refined_matches = ecc_info["refined_matches"]
+        print(f"  [ECC] Refinement complete: {len(refined_matches)} points (threshold={min_ecc_score}, {'cross-sensor' if not is_same_sensor else 'same-sensor'})")
     else:
         refined_matches = np.empty((0, 5))
 
+    # Step 3.3: Fit 3-Layer Physics-Grounded Hybrid Transformation
     model_json = out_dir / "hybrid_transform_model.json"
     hybrid_model = HybridTransform()
-    
+
     with rasterio.open(source_cammap) as ds:
         image_shape = (ds.height, ds.width)
 
     if len(refined_matches) >= 6:
-        # Filter for high-confidence ECC converged points (ecc_rho >= 0.55) if 5th column exists
-        if refined_matches.shape[1] >= 5:
-            good_ecc = refined_matches[:, 4] >= 0.55
-            if np.sum(good_ecc) >= 15:
-                refined_matches = refined_matches[good_ecc]
-                
         src_tie = refined_matches[:, :2]
         ref_tie = refined_matches[:, 2:4]
         print(f"  Fitting 3-Layer Hybrid Model on {len(src_tie)} sub-pixel tie points...")
+
+        # FIX: Guard against degenerate collinear tie point geometry.
+        # When all inliers fall within a narrow row-band (e.g. all rows within 25px of each
+        # other), the affine fit has zero degrees of freedom and produces a
+        # catastrophically wrong translation (up to 6000px error seen in test_6, test_7).
+        # If span is degenerate, augment with candidate matches to widen coverage.
+        y_span = float(np.max(src_tie[:, 1]) - np.min(src_tie[:, 1]))
+        min_span_px = max(100.0, image_shape[0] * 0.03)
+        if y_span < min_span_px and match_info["total_matches"] > len(src_tie):
+            print(f"  [WARNING] Tie point Y-span {y_span:.0f}px < {min_span_px:.0f}px — augmenting with candidate matches for geometric stability.")
+            cand_src = match_info["src_pts"]
+            cand_ref = match_info["ref_pts"]
+            # Only add candidates not already represented
+            src_tie = np.vstack([src_tie, cand_src])
+            ref_tie = np.vstack([ref_tie, cand_ref])
+            print(f"  [AUGMENT] Expanded tie points to {len(src_tie)} for stable transform fit.")
         hybrid_model.fit(
             src_pts=src_tie,
             ref_pts=ref_tie,

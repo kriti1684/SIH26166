@@ -378,10 +378,16 @@ def run_tiled_matching(
         tiles = get_tile_bounds((h_src, w_src), eff_tile, eff_step)
         
         # Adaptive search padding based on coarse alignment confidence:
-        # If coarse confidence is low (< 0.15), expand window to 400px to absorb pointing uncertainty,
-        # but keep it capped at <= 500px to maintain high crater contrast and fast GPU throughput.
+        # If coarse confidence is very low (< 0.05), expand window to 700px to absorb
+        # extreme pointing uncertainty common in long OHRC swaths.
+        # If moderately low (< 0.15), use 400-500px.
         coarse_conf = float(coarse_result.get("confidence", 1.0)) if coarse_result else 1.0
-        eff_padding = min(max(search_padding, 400), 500) if coarse_conf < 0.15 else search_padding
+        if coarse_conf < 0.05:
+            eff_padding = min(max(search_padding, 700), 800)
+        elif coarse_conf < 0.15:
+            eff_padding = min(max(search_padding, 400), 500)
+        else:
+            eff_padding = search_padding
         
         all_src_pts = []
         all_ref_pts = []
@@ -472,7 +478,18 @@ def run_tiled_matching(
         src_pts_arr = np.vstack(all_src_pts)
         ref_pts_arr = np.vstack(all_ref_pts)
         
-        H, mask = cv2.findHomography(src_pts_arr, ref_pts_arr, cv2.RANSAC, 5.0)
+        # FIX: Global affine consistency cleanup instead of homography.
+        # Using findHomography (8-DOF) on satellite imagery in the same CRS is wrong —
+        # there is no projective distortion between reprojected rasters. Homography
+        # spuriously rejects valid affine-consistent inliers as "homography outliers",
+        # cutting the match pool exactly when you need density for TPS.
+        # Using estimateAffine2D with 3.0px threshold is physically correct and tighter.
+        A_global, mask = cv2.estimateAffine2D(
+            src_pts_arr, ref_pts_arr, cv2.RANSAC,
+            ransacReprojThreshold=3.0,
+            maxIters=2000,
+            confidence=0.999
+        )
         if mask is not None:
             mask = mask.ravel() == 1
             src_pts_arr = src_pts_arr[mask]
