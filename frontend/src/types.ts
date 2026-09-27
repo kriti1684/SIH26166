@@ -25,7 +25,6 @@ export interface JobOutputLinks {
 
 export interface RegistrationJob {
   id: string
-  celery_task_id?: string | null
   sensor_src: string
   sensor_ref: string
   source_filename: string
@@ -67,7 +66,6 @@ export interface HealthStatus {
   status: string
   version?: string
   db?: string
-  celery_queue?: string
   gpu_available?: boolean
   gpu_name?: string | null
 }

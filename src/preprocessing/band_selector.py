@@ -1,27 +1,3 @@
-"""
-src/preprocessing/band_selector.py
-=====================================
-Intelligent Hyperspectral Band Selector for Chandrayaan-2 IIRS (800nm - 5000nm).
-Fulfills ISRO SIH Problem Statement 26166 for multi-modal IIRS co-registration
-against LRO WAC (321nm - 689nm) and SELENE TC/MI.
-
-Physics & Spectral Theory:
---------------------------
-1. Solar Reflected SWIR Window:
-   Reflected solar radiation dominates in Channels 0 to ~40 (800nm - 1250nm).
-   Beyond 2500nm, thermal emission from the hot daytime lunar surface dominates,
-   inverting contrast and corrupting visual feature correlation against optical sensors.
-2. Spectral Proximity:
-   LRO WAC Band 7 is at 689nm. The lowest IIRS bands (~800nm-850nm) have the minimal
-   spectral separation (~110nm - 160nm), maximizing albedo correlation.
-3. Information Entropy & SNR:
-   The algorithm scans candidate SWIR bands, eliminates dead detector lines,
-   and selects the band maximizing spatial entropy and standard deviation.
-4. Pseudo-Panchromatic Synthesis:
-   Optionally computes a radiance-weighted mean of the top K solar bands to boost
-   Signal-to-Noise Ratio (SNR by factor of sqrt(K)).
-"""
-
 from pathlib import Path
 from typing import Optional, Dict, Any
 import numpy as np
@@ -82,7 +58,6 @@ def select_best_band_for_reference(
         total_bands = src.count
         h, w = src.height, src.width
 
-        # Read a central sample window to evaluate spatial quality fast
         r0 = max(0, (h - sample_window_size) // 2)
         c0 = max(0, (w - sample_window_size) // 2)
         sample_win = Window(col_off=c0, row_off=r0,
@@ -101,7 +76,6 @@ def select_best_band_for_reference(
                 if len(valid) < 100:
                     continue
 
-                # Compute quality metrics
                 std_val = float(np.std(valid))
                 entropy_val = compute_band_entropy(valid)
                 wavelength = get_iirs_band_wavelength(b_idx)
@@ -134,7 +108,6 @@ def select_best_band_for_reference(
                 "target_sensor": reference_sensor
             }
 
-        # Sort by composite score descending
         scores.sort(key=lambda x: x["composite_score"], reverse=True)
         best = scores[0]
 

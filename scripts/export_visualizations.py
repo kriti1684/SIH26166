@@ -1,10 +1,3 @@
-"""
-scripts/export_run_v2_visualizations.py
-=======================================
-Generates side-by-side tile match visualizations (with connecting correspondence lines)
-for all detected matches, exactly matching lunar_matches_v5 format.
-"""
-
 from pathlib import Path
 import cv2
 import numpy as np
@@ -25,7 +18,6 @@ def draw_matching_tile(
     """
     Renders high-res side-by-side correspondence plot with matching lines.
     """
-    # Normalize images for display
     def norm_u8(arr):
         v = arr[arr > 0]
         if len(v) < 50:
@@ -47,21 +39,18 @@ def draw_matching_tile(
     canvas[:H0, :W0] = im0_bgr
     canvas[:H1, W0 + margin:W0 + margin + W1] = im1_bgr
 
-    # Draw correspondence lines
     for i, ((x0, y0), (x1, y1)) in enumerate(zip(src_pts, ref_pts)):
         p0 = (int(round(x0)), int(round(y0)))
         p1 = (int(round(x1)) + W0 + margin, int(round(y1)))
         
-        color = (0, 255, 128) # bright green
+        color = (0, 255, 128)
         cv2.line(canvas, p0, p1, color, 2, lineType=cv2.LINE_AA)
-        cv2.circle(canvas, p0, 4, (0, 0, 255), -1, lineType=cv2.LINE_AA) # red dot
+        cv2.circle(canvas, p0, 4, (0, 0, 255), -1, lineType=cv2.LINE_AA)
         cv2.circle(canvas, p1, 4, (0, 0, 255), -1, lineType=cv2.LINE_AA)
         
-        # Number label
         cv2.putText(canvas, str(i + 1), (p0[0] + 6, p0[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(canvas, str(i + 1), (p1[0] + 6, p1[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA)
 
-    # Header and info text
     cv2.putText(canvas, f"OHRC Tile #{tile_id:04d}", (25, 45), cv2.FONT_HERSHEY_DUPLEX, 1.2, (0, 0, 0), 3, cv2.LINE_AA)
     cv2.putText(canvas, f"OHRC Tile #{tile_id:04d}", (25, 45), cv2.FONT_HERSHEY_DUPLEX, 1.2, (255, 255, 255), 1, cv2.LINE_AA)
     cv2.putText(canvas, "NAC Reference Tile", (W0 + margin + 25, 45), cv2.FONT_HERSHEY_DUPLEX, 1.2, (0, 0, 0), 3, cv2.LINE_AA)
@@ -99,7 +88,6 @@ def main():
         w_src, h_src = src_ds.width, src_ds.height
         w_ref, h_ref = ref_ds.width, ref_ds.height
 
-        # Group matches into clusters/tiles by 1600px blocks
         df["grid_x"] = (df["src_x"] // 1200).astype(int)
         df["grid_y"] = (df["src_y"] // 1200).astype(int)
 
@@ -112,11 +100,9 @@ def main():
             x1 = min(w_src, x0 + tile_size)
             y1 = min(h_src, y0 + tile_size)
 
-            # Crop source tile
             win_src = Window(col_off=x0, row_off=y0, width=x1 - x0, height=y1 - y0)
             src_crop = src_ds.read(1, window=win_src).astype(np.float32)
 
-            # Corresponding ref bounding box
             ref_pts_x = group["ref_x"].values
             ref_pts_y = group["ref_y"].values
 
@@ -128,15 +114,12 @@ def main():
             win_ref = Window(col_off=rx0, row_off=ry0, width=rx1 - rx0, height=ry1 - ry0)
             ref_crop = ref_ds.read(1, window=win_ref).astype(np.float32)
 
-            # Local coordinates
             local_src = np.column_stack([group["src_x"].values - x0, group["src_y"].values - y0])
             local_ref = np.column_stack([group["ref_x"].values - rx0, group["ref_y"].values - ry0])
 
-            # Save individual tiles in tile_pngs/
             cv2.imwrite(str(tile_dir / f"tile_{tile_idx:04d}_ohrc.png"), np.clip(src_crop, 0, 255).astype(np.uint8))
             cv2.imwrite(str(tile_dir / f"tile_{tile_idx:04d}_nac.png"), np.clip(ref_crop, 0, 255).astype(np.uint8))
 
-            # Save visual match in match_visualizations/
             match_out = viz_dir / f"tile_{tile_idx:04d}_matches.png"
             draw_matching_tile(
                 src_img=src_crop,

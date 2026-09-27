@@ -1,4 +1,3 @@
-"""Small, aspect-preserving PNG quicklooks for the local web dashboard."""
 from pathlib import Path
 from typing import Dict, Any
 

@@ -1,4 +1,3 @@
-"""Pydantic response schemas for the local registration API."""
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -76,7 +75,6 @@ class JobOutputLinks(BaseModel):
 
 class JobDetailResponse(BaseModel):
     id: str
-    celery_task_id: Optional[str] = None
     sensor_src: str
     sensor_ref: str
     source_filename: str

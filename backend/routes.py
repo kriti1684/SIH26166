@@ -1,4 +1,3 @@
-"""FastAPI routes for registration jobs, progress, and generated artifacts."""
 import hashlib
 import mimetypes
 import re
@@ -94,7 +93,7 @@ async def create_registration_job(
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
-    """Upload two products (plus optional sidecars) and enqueue the full pipeline."""
+    """Upload two products (plus optional sidecars) and start the pipeline in-process."""
     source_sidecars = source_sidecars or []
     reference_sidecars = reference_sidecars or []
     if len(source_sidecars) + len(reference_sidecars) > 16:
@@ -190,10 +189,6 @@ async def create_registration_job(
         "source_files": [str(path) for path in saved["source"]],
         "reference_files": [str(path) for path in saved["reference"]],
     }
-    job.celery_task_id = f"local-{job.id[:8]}"
-    db.commit()
-    db.refresh(job)
-
     if background_tasks is not None:
         background_tasks.add_task(run_registration_pipeline, job_id=job.id, params=params)
     else:
@@ -401,7 +396,6 @@ def _to_job_detail(job: RegistrationJob) -> dict:
     metrics_value = metrics or None
     return {
         "id": job.id,
-        "celery_task_id": job.celery_task_id,
         "sensor_src": job.sensor_src,
         "sensor_ref": job.sensor_ref,
         "source_filename": job.source_filename,

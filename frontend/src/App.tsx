@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { apiUrl, createJob, fetchArtifacts, fetchHealth, fetchJob, fetchJobs } from './api'
+import { AppSidebar, type ActiveTab } from './components/AppSidebar'
 import {
   ArtifactRow, formatBytes, formatMetric, formatTime, ImageLightbox, Mark, MetricCard,
   ProductDrop, StageDetails,
 } from './components'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
 import type { ArtifactInfo, HealthStatus, PipelineStageEvent, RegistrationConfig, RegistrationJob } from './types'
 
 const SOURCE_SENSORS = [
@@ -79,8 +84,6 @@ export const STAGES: StageDefinition[] = [
   },
 ]
 
-type ActiveTab = 'input' | 'stage_1' | 'stage_2' | 'stage_3' | 'stage_4' | 'stage_5' | 'output'
-
 const initialConfig: RegistrationConfig = {
   source: null,
   reference: null,
@@ -135,7 +138,6 @@ function App() {
       const response = await fetchArtifacts(jobId)
       setArtifacts(response.artifacts)
     } catch {
-      // Artifact fetch retries
     }
   }, [])
 
@@ -191,7 +193,6 @@ function App() {
         setArtifacts((current) => JSON.stringify(current) === JSON.stringify(artifactResponse.artifacts)
           ? current : artifactResponse.artifacts)
       } catch {
-        // Polling retry
       } finally {
         pollingRef.current = false
       }
@@ -275,9 +276,9 @@ function App() {
     if (job.status === 'PROCESSING' || job.status === 'PENDING') return 'running'
     return 'waiting'
   }
+  const outputState = getOutputState()
   return (
     <div className="app-shell">
-      {/* Top Header */}
       <header className="topbar">
         <a className="brand" href="#top" onClick={(e) => { e.preventDefault(); setActiveTab('input') }}>
           <span className="brand-mark"><Mark name="moon" size={20} /></span>
@@ -289,11 +290,11 @@ function App() {
 
         <div className="topbar-center">
           {job && (
-            <div className="current-run-pill" onClick={() => setActiveTab(job.status === 'SUCCESS' ? 'output' : 'stage_1')}>
+            <Button type="button" variant="outline" size="sm" className="current-run-pill bg-primary/5" onClick={() => setActiveTab(job.status === 'SUCCESS' ? 'output' : 'stage_1')}>
               <span className={`run-status-dot ${job.status.toLowerCase()}`} />
               <span className="run-names">{job.source_filename} → {job.reference_filename}</span>
               <span className="run-pct">{stageProgress}%</span>
-            </div>
+            </Button>
           )}
         </div>
 
@@ -302,119 +303,26 @@ function App() {
             <span className="api-dot" />{health?.status === 'online' ? 'Backend Ready' : 'Backend Offline'}
           </div>
           {job && (
-            <button type="button" className="new-job-btn" onClick={handleResetRun} title="Reset and configure a new pair">
+            <Button type="button" variant="outline" size="sm" className="new-job-btn" onClick={handleResetRun} title="Reset and configure a new pair">
               <Mark name="plus" size={13} /> New Run
-            </button>
+            </Button>
           )}
         </div>
       </header>
 
-      {/* Main Layout: Left Sidebar + Right Content Workspace */}
       <div className="layout-body">
-        {/* Left Sidebar */}
-        <aside className="sidebar-nav">
-          <div className="sidebar-header">
-            <span>PIPELINE WORKFLOW</span>
-          </div>
+        <AppSidebar
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          stages={STAGES}
+          getStageState={getStageState}
+          outputState={outputState}
+          productsReady={Boolean(config.source && config.reference)}
+          progress={stageProgress}
+          currentStage={job?.current_stage ?? 'Ready for run'}
+        />
 
-          <div className="sidebar-menu">
-            {/* 00. Input Products */}
-            <button
-              type="button"
-              className={`sidebar-item ${activeTab === 'input' ? 'active' : ''}`}
-              onClick={() => setActiveTab('input')}
-            >
-              <div className="sidebar-item-left">
-                <span className="sidebar-num">00</span>
-                <div className="sidebar-labels">
-                  <strong>Input Products</strong>
-                  <small>Source & Reference</small>
-                </div>
-              </div>
-              <span className={`sidebar-badge ${config.source && config.reference ? 'ready' : 'waiting'}`}>
-                {config.source && config.reference ? 'Ready' : 'Setup'}
-              </span>
-            </button>
-
-            <div className="sidebar-divider" />
-
-            {/* Stages 01 to 05 */}
-            {STAGES.map((stage) => {
-              const state = getStageState(stage.id)
-              return (
-                <button
-                  key={stage.id}
-                  type="button"
-                  className={`sidebar-item ${activeTab === stage.id ? 'active' : ''} state-${state}`}
-                  onClick={() => setActiveTab(stage.id as ActiveTab)}
-                >
-                  <div className="sidebar-item-left">
-                    <span className={`sidebar-num stage-num ${state}`}>
-                      {state === 'complete' ? <Mark name="check" size={12} /> :
-                       state === 'failed' ? <Mark name="alert" size={12} /> :
-                       stage.index}
-                    </span>
-                    <div className="sidebar-labels">
-                      <strong>{stage.shortName}</strong>
-                      <small>Stage {stage.index}</small>
-                    </div>
-                  </div>
-                  <span className={`sidebar-badge badge-${state}`}>
-                    {state === 'running' ? 'Running' :
-                     state === 'complete' ? 'Done' :
-                     state === 'failed' ? 'Failed' : 'Pending'}
-                  </span>
-                </button>
-              )
-            })}
-
-            <div className="sidebar-divider" />
-
-            {/* 06. Output & Results */}
-            <button
-              type="button"
-              className={`sidebar-item ${activeTab === 'output' ? 'active' : ''} state-${getOutputState()}`}
-              onClick={() => setActiveTab('output')}
-            >
-              <div className="sidebar-item-left">
-                <span className={`sidebar-num stage-num ${getOutputState()}`}>
-                  {getOutputState() === 'complete' ? <Mark name="check" size={12} /> :
-                   getOutputState() === 'failed' ? <Mark name="alert" size={12} /> :
-                   '06'}
-                </span>
-                <div className="sidebar-labels">
-                  <strong>Output & Results</strong>
-                  <small>Previews & Metrics</small>
-                </div>
-              </div>
-              <span className={`sidebar-badge badge-${getOutputState()}`}>
-                {getOutputState() === 'complete' ? 'Verified' :
-                 getOutputState() === 'running' ? 'Active' :
-                 getOutputState() === 'failed' ? 'Failed' : 'Waiting'}
-              </span>
-            </button>
-          </div>
-
-          {/* Sidebar Status Footer */}
-          <div className="sidebar-footer">
-            <div className="sidebar-progress-box">
-              <div className="sidebar-progress-label">
-                <span>Registration Status</span>
-                <b>{stageProgress}%</b>
-              </div>
-              <div className="sidebar-progress-track">
-                <i style={{ width: `${stageProgress}%` }} />
-              </div>
-              <small className="sidebar-stage-label">
-                {job?.current_stage ?? 'Ready for run'}
-              </small>
-            </div>
-          </div>
-        </aside>
-
-        {/* Right Main Content Pane */}
-        <main className="content-pane">
-          {/* TAB 00: INPUT STATE */}
+        <main className="content-pane px-4 py-6 sm:px-6 lg:px-8 lg:py-8 xl:px-10">
           {activeTab === 'input' && (
             <section className="view-panel input-view">
               <div className="view-header">
@@ -426,16 +334,16 @@ function App() {
               </div>
 
               {job && (
-                <div className="active-run-alert">
+                <Card className="active-run-alert">
                   <Mark name="activity" size={16} />
                   <div className="active-run-alert-copy">
                     <strong>Active Run: {job.source_filename} → {job.reference_filename}</strong>
                     <span>Status: {job.current_stage || job.status} ({stageProgress}%)</span>
                   </div>
-                  <button type="button" className="alert-btn" onClick={() => setActiveTab(job.status === 'SUCCESS' ? 'output' : 'stage_1')}>
+                  <Button type="button" size="sm" onClick={() => setActiveTab(job.status === 'SUCCESS' ? 'output' : 'stage_1')}>
                     View Execution
-                  </button>
-                </div>
+                  </Button>
+                </Card>
               )}
 
               <form className="products-form" onSubmit={handleSubmit}>
@@ -465,7 +373,7 @@ function App() {
                   />
                 </div>
 
-                <div className="form-submit-box">
+                <Card className="form-submit-box">
                   {submitError && (
                     <div className="form-error">
                       <Mark name="alert" size={16} />
@@ -476,7 +384,7 @@ function App() {
                   {submitting && (
                     <div className="upload-progress">
                       <div><span>Uploading products to registration engine</span><b>{uploadProgress}%</b></div>
-                      <span className="progress-track"><i style={{ width: `${Math.max(uploadProgress, 4)}%` }} /></span>
+                      <Progress value={uploadProgress} className="progress-track" aria-label={`Upload ${uploadProgress}% complete`} />
                       <small>The registration pipeline starts automatically upon upload completion.</small>
                     </div>
                   )}
@@ -487,9 +395,10 @@ function App() {
                       <strong>{formatBytes(uploadBundleBytes)}</strong>
                     </div>
 
-                    <button
+                    <Button
                       className="run-btn-primary"
                       type="submit"
+                      size="lg"
                       disabled={submitting || !config.source || !config.reference || health?.status !== 'online' || uploadLimitExceeded || sidecarCount > 16}
                       title={health?.status !== 'online' ? 'The registration backend is offline.' : undefined}
                     >
@@ -498,14 +407,13 @@ function App() {
                       ) : (
                         <><Mark name="spark" size={18} /> Start registration run <Mark name="arrow" size={16} /></>
                       )}
-                    </button>
+                    </Button>
                   </div>
-                </div>
+                </Card>
               </form>
             </section>
           )}
 
-          {/* TABS 01 - 05: INDIVIDUAL STAGES */}
           {activeTab.startsWith('stage_') && (() => {
             const currentStage = STAGES.find(s => s.id === activeTab)!
             const event = stageEvents.get(currentStage.id)
@@ -525,15 +433,14 @@ function App() {
                     <p>{currentStage.description}</p>
                   </div>
                   <div className="view-header-right">
-                    <span className={`stage-state-pill state-${state}`}>
+                    <Badge variant={state === 'complete' ? 'success' : state === 'failed' ? 'destructive' : state === 'running' ? 'warning' : 'muted'} className={`stage-state-pill state-${state}`}>
                       <i /> {state === 'running' ? 'IN PROGRESS' : state.toUpperCase()}
-                    </span>
+                    </Badge>
                   </div>
                 </div>
 
-                {/* Execution Event & Message */}
                 {event ? (
-                  <div className={`stage-log-card ${state === 'failed' ? 'is-error' : ''}`}>
+                  <Card className={`stage-log-card ${state === 'failed' ? 'is-error' : ''}`}>
                     <div className="log-top">
                       <div className="log-title">
                         <span className={`log-bullet state-${state}`} />
@@ -543,16 +450,15 @@ function App() {
                     </div>
                     <p className="log-msg">{event.message}</p>
                     {event.details && <StageDetails details={event.details} />}
-                  </div>
+                  </Card>
                 ) : (
-                  <div className="stage-waiting-card">
+                  <Card className="stage-waiting-card">
                     <div className="waiting-spinner" />
                     <strong>Stage Not Started Yet</strong>
                     <p>This stage will automatically execute once previous stages complete.</p>
-                  </div>
+                  </Card>
                 )}
 
-                {/* Stage Previews Gallery */}
                 {stagePreviews.length > 0 && (
                   <div className="stage-section">
                     <h3 className="section-title">
@@ -562,7 +468,7 @@ function App() {
                     </h3>
                     <div className="stage-previews-grid">
                       {stagePreviews.map((art, idx) => (
-                        <div
+                        <Card
                           className="preview-card"
                           key={art.artifact_id}
                           onClick={() => setLightboxState({ list: stagePreviews, index: idx })}
@@ -584,16 +490,15 @@ function App() {
                               <Mark name="download" size={14} />
                             </a>
                           </div>
-                        </div>
+                        </Card>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {/* Stage Downloadable Files (Closed Dropdown by Default) */}
                 {stageArtifacts.length > 0 && (
                   <div className="stage-section">
-                    <details key={currentStage.id} className="stage-artifacts-dropdown">
+                    <Card asChild className="stage-artifacts-card"><details key={currentStage.id} className="stage-artifacts-dropdown">
                       <summary className="stage-artifacts-summary">
                         <div className="summary-left">
                           <span className="summary-icon"><Mark name="download" size={16} /></span>
@@ -610,50 +515,47 @@ function App() {
                           <ArtifactRow key={art.artifact_id} artifact={art} />
                         ))}
                       </div>
-                    </details>
+                    </details></Card>
                   </div>
                 )}
 
-                {/* Stage Navigation Footer */}
                 <div className="stage-nav-footer">
                   {prevStage ? (
-                    <button type="button" className="stage-nav-btn prev" onClick={() => setActiveTab(prevStage.id as ActiveTab)}>
+                    <Button type="button" variant="outline" className="stage-nav-btn prev h-auto min-h-10 whitespace-normal py-2 text-left" onClick={() => setActiveTab(prevStage.id as ActiveTab)}>
                       ← Previous: {prevStage.shortName}
-                    </button>
+                    </Button>
                   ) : (
-                    <button type="button" className="stage-nav-btn prev" onClick={() => setActiveTab('input')}>
+                    <Button type="button" variant="outline" className="stage-nav-btn prev h-auto min-h-10 whitespace-normal py-2 text-left" onClick={() => setActiveTab('input')}>
                       ← Back to Input
-                    </button>
+                    </Button>
                   )}
                   {nextStage ? (
-                    <button type="button" className="stage-nav-btn next" onClick={() => setActiveTab(nextStage.id as ActiveTab)}>
+                    <Button type="button" variant="outline" className="stage-nav-btn next h-auto min-h-10 whitespace-normal py-2 text-left" onClick={() => setActiveTab(nextStage.id as ActiveTab)}>
                       Next: {nextStage.shortName} →
-                    </button>
+                    </Button>
                   ) : (
-                    <button type="button" className="stage-nav-btn next" onClick={() => setActiveTab('output')}>
+                    <Button type="button" variant="outline" className="stage-nav-btn next h-auto min-h-10 whitespace-normal py-2 text-left" onClick={() => setActiveTab('output')}>
                       Final Output & Results →
-                    </button>
+                    </Button>
                   )}
                 </div>
               </section>
             )
           })()}
-          {/* TAB 06: OUTPUT & RESULTS */}
           {activeTab === 'output' && (
             <section className="view-panel output-view">
               {!job ? (
-                <div className="no-results-card">
+                <Card className="no-results-card">
                   <div className="empty-orbit-icon"><Mark name="moon" size={36} /></div>
                   <h3>No Registration Run Available</h3>
                   <p>Please setup source and reference products on the Input tab and run the co-registration engine.</p>
-                  <button type="button" className="run-btn-primary" onClick={() => setActiveTab('input')}>
+                  <Button type="button" className="run-btn-primary" size="lg" onClick={() => setActiveTab('input')}>
                     Go to Input Setup
-                  </button>
-                </div>
+                  </Button>
+                </Card>
               ) : (
                 <>
-                  {/* Results Overview Hero */}
-                  <div className="results-hero">
+                  <Card className="results-hero">
                     <div className="hero-top">
                       <div>
                         <span className="eyebrow"><span className="eyebrow-line" /> FINAL CO-REGISTRATION OUTPUT</span>
@@ -665,9 +567,9 @@ function App() {
                         </div>
                       </div>
                       <div className="hero-verdict-box">
-                        <span className={`verdict-pill ${String(metrics?.verdict ?? '').toLowerCase().includes('verified') ? 'verified' : 'uncertain'}`}>
+                        <Badge variant={String(metrics?.verdict ?? '').toLowerCase().includes('verified') ? 'success' : 'warning'} className={`verdict-pill ${String(metrics?.verdict ?? '').toLowerCase().includes('verified') ? 'verified' : 'uncertain'}`}>
                           <i /> {String(metrics?.verdict ?? job.status).replaceAll('_', ' ')}
-                        </span>
+                        </Badge>
                       </div>
                     </div>
 
@@ -680,17 +582,16 @@ function App() {
                         </div>
                       </div>
                     )}
-                  </div>
+                  </Card>
 
-                  {/* Scientific Metrics Grid */}
                   {metrics && (
                     <div className="results-section">
                       <div className="results-section-header">
                         <h3 className="section-title">Scientific Precision Metrics</h3>
                         {metrics.metrics_are_measured === false && (
-                          <span className="measurement-warning-pill">
+                          <Badge variant="warning" className="measurement-warning-pill">
                             <Mark name="alert" size={13} /> Estimated residuals
-                          </span>
+                          </Badge>
                         )}
                       </div>
 
@@ -714,7 +615,6 @@ function App() {
                     </div>
                   )}
 
-                  {/* Visual Previews Gallery */}
                   {(() => {
                     const outputPreviews = artifacts.filter(a => a.previewable && a.preview_url)
                     if (outputPreviews.length === 0) return null
@@ -723,7 +623,7 @@ function App() {
                         <h3 className="section-title">Co-Registration Quicklooks & Visual Verification ({outputPreviews.length})</h3>
                         <div className="results-previews-grid">
                           {outputPreviews.map((art, idx) => (
-                            <div
+                            <Card
                               className="result-preview-card"
                               key={art.artifact_id}
                               onClick={() => setLightboxState({ list: outputPreviews, index: idx })}
@@ -745,14 +645,13 @@ function App() {
                                   <Mark name="download" size={15} />
                                 </a>
                               </div>
-                            </div>
+                            </Card>
                           ))}
                         </div>
                       </div>
                     )
                   })()}
 
-                  {/* All Output Files & Downloads */}
                   <div className="results-section">
                     <div className="results-section-header">
                       <h3 className="section-title">Generated Data Products & Scientific Artifacts ({artifacts.length})</h3>

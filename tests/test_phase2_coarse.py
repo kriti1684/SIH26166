@@ -1,7 +1,3 @@
-"""
-Phase 2 Integration Test: Structural Maps + Coarse Alignment on Real OHRC-NAC Data.
-Validates both structural.py and coarse_alignment.py.
-"""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -12,23 +8,18 @@ import numpy as np
 from src.preprocessing.structural import compute_structural_representation
 from src.registration.coarse_alignment import run_coarse_alignment, phase_correlation_coarse, crater_rim_consensus_voting
 
-# ─── Unit Tests ──────────────────────────────────────────────────────────────
 
 def test_phase_congruency_invariance():
-    """Phase congruency should be invariant to brightness shifts."""
     np.random.seed(42)
-    # Simulate a crater: bright rim on dark background
     base = np.zeros((256, 256), dtype=np.float32)
-    cv2.circle(base, (128, 128), 50, 180.0, 8)  # crater rim
+    cv2.circle(base, (128, 128), 50, 180.0, 8)
     base += np.random.randn(256, 256).astype(np.float32) * 5.0
 
-    # Version 2: Same scene, different overall brightness (simulate high-sun vs low-sun albedo offset)
     bright = base + 80.0
 
     res1 = compute_structural_representation(base, method="phase_congruency")
     res2 = compute_structural_representation(bright, method="phase_congruency")
 
-    # Structural maps should be very similar despite brightness difference
     p1 = res1["structural"]
     p2 = res2["structural"]
 
@@ -44,15 +35,13 @@ def test_phase_congruency_invariance():
 
 
 def test_shadow_mask():
-    """Shadow mask should zero out dark regions."""
     img = np.ones((100, 100), dtype=np.float32) * 128.0
-    img[:30, :] = 0.0  # Top 30 rows are shadow
+    img[:30, :] = 0.0
 
     res = compute_structural_representation(img, method="gradient", shadow_pct_threshold=5.0)
     mask = res["shadow_mask"]
 
-    # Most shadow pixels should be masked
-    shadow_region = mask[:20, :]  # Inner shadow, away from border dilation
+    shadow_region = mask[:20, :]
     shadow_valid_pct = shadow_region.mean()
     print(f"  Shadow region valid fraction: {shadow_valid_pct:.3f} (should be near 0)")
     assert shadow_valid_pct < 0.5, "Shadow mask not eliminating shadow region"
@@ -60,7 +49,6 @@ def test_shadow_mask():
 
 
 def test_fft_phase_correlation_synthetic():
-    """FFT phase correlation should recover a known shift."""
     np.random.seed(7)
     ref = np.random.randn(512, 512).astype(np.float32) * 30.0 + 128.0
     # Apply shift (dx=23, dy=-17) to src: src is ref shifted by those amounts
@@ -81,7 +69,6 @@ def test_fft_phase_correlation_synthetic():
 
 
 def test_crater_voting_synthetic():
-    """Crater voting should find the known offset from synthetic crater patterns."""
     np.random.seed(42)
     h, w = 512, 512
 
@@ -89,12 +76,11 @@ def test_crater_voting_synthetic():
     crater_positions = [(100, 100, 30), (200, 300, 45), (350, 150, 25),
                         (400, 400, 35), (150, 420, 20), (300, 100, 40)]
 
-    # Create realistic synthetic images: noise background + blurred crater rings
     def make_crater_img(craters):
         img = (np.random.randn(h, w) * 10 + 128).clip(0, 255).astype(np.float32)
         for cx, cy, r in craters:
             cv2.circle(img, (cx, cy), r, 230.0, 4)
-            cv2.circle(img, (cx, cy), max(1, r - 4), 70.0, 3)  # Inner dark floor
+            cv2.circle(img, (cx, cy), max(1, r - 4), 70.0, 3)
         img = cv2.GaussianBlur(img, (5, 5), 1.2)
         return img.astype(np.uint8)
 
@@ -118,7 +104,6 @@ def test_crater_voting_synthetic():
 
 
 def test_full_coarse_alignment_on_real_data():
-    """Run full dual-method coarse alignment on our real BBox-harmonized pair."""
     src_p = Path("projects/project_test_fixed/harmonized_v2/bbox_overlap_source_cammap.tif")
     ref_p = Path("projects/project_test_fixed/harmonized_v2/bbox_overlap_ref_cropped.tif")
     out_dir = Path("projects/project_test_fixed/harmonized_v2")

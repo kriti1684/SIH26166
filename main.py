@@ -1,22 +1,3 @@
-"""
-main.py
-=======
-ChandaShakti: Universal Sub-Pixel Multi-Modal Lunar Image Co-Registration Engine
-ISRO Smart India Hackathon (SIH 2024) — Problem Statement SIH26166.
-
-Features:
-  - Phase 1: Robust scale harmonization, SPICE ray-tracing & structural enhancement
-  - Phase 2: Dual-method coarse alignment (Structural FFT + Crater Rim Consensus Voting)
-  - Phase 3: Dense LoFTR attention matching + Sub-Pixel continuous Gauss-Newton ECC
-  - Phase 4: 3-Layer physics-grounded hybrid transformation (Affine + Drift + TPS)
-  - Phase 5: Streaming block-wise bicubic warping & multi-pillar scientific verification
-
-Usage Example:
-  python main.py --source <path> --reference <path> \
-                 --sensor_src <OHRC|IIRS|TMC> --sensor_ref <NAC|WAC|SELENE> \
-                 --out_dir <path>
-"""
-
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -25,7 +6,6 @@ import sys
 import time
 from pathlib import Path
 
-# Add project root to sys.path
 ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -33,7 +13,6 @@ if str(ROOT_DIR) not in sys.path:
 import numpy as np
 import rasterio
 
-# Import src components
 from src.preprocessing.ingest import ensure_georeferenced
 from src.preprocessing.scale_harmonizer import crop_and_harmonize_overlap
 from src.preprocessing.band_selector import extract_or_synthesize_band
@@ -50,7 +29,6 @@ def parse_args():
         description="ChandaShakti: Universal Sub-Pixel Lunar Registration Engine (ISRO SIH 26166 v2.0)",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    # Required parameters
     parser.add_argument("--source", "-s", type=Path, required=True,
                         help="Path to source image (OHRC, IIRS, TMC-2)")
     parser.add_argument("--reference", "-r", type=Path, required=True,
@@ -62,7 +40,6 @@ def parse_args():
     parser.add_argument("--out_dir", "-o", type=Path, default=Path("projects/run_v2"),
                         help="Output directory for results (default: projects/run_v2)")
 
-    # Optional tuning flags
     parser.add_argument("--grid_size", type=int, nargs=2, default=[4, 4],
                         help="Tiled matching grid rows and cols (default: 4 4)")
     parser.add_argument("--method", choices=["loftr", "sift", "crater"], default="loftr",
@@ -126,15 +103,11 @@ def run_pipeline(args):
     print(f"  * Warp Order: {args.warp_order} (Bicubic Spline)")
     print("-" * 75)
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # STAGE 1: Bounding-Box Intersect & Scale Harmonization (Cam2Map)
-    # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print("\n[STAGE 1/5] Bounding-Box Overlap & Scale Harmonization...")
 
     actual_source_path = args.source
 
-    # Hyperspectral band selection if source is IIRS
     if args.sensor_src == "IIRS":
         print("  [IIRS] Detected Hyperspectral cube. Performing solar-reflective SWIR band selection...")
         band_out = out_dir / "iirs_selected_band.tif"
@@ -145,7 +118,6 @@ def run_pipeline(args):
             use_synthesis=True
         )
 
-    # Georeference inputs if unprojected raw formats (PDS3 / PDS4)
     georef_dir = out_dir / "georeferenced"
     georef_dir.mkdir(parents=True, exist_ok=True)
     source_geo = ensure_georeferenced(actual_source_path, args.sensor_src, georef_dir, force=args.force, wac_band=getattr(args, "wac_band", 7))
@@ -163,13 +135,9 @@ def run_pipeline(args):
     )
     print(f"  [OK] Stage 1 finished in {time.time() - t0:.2f}s")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # STAGE 2: Modality-Invariant Structure & Dual-Method Coarse Alignment
-    # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print("\n[STAGE 2/5] Modality-Invariant Structural Extraction & Coarse Alignment...")
 
-    # Run dual-method coarse alignment
     coarse_res = run_coarse_alignment(
         source_harmonized_path=source_cammap,
         ref_cropped_path=ref_cropped,
@@ -184,16 +152,12 @@ def run_pipeline(args):
     print(f"  Coarse Global Shift: dx = {coarse_dx:.2f} px, dy = {coarse_dy:.2f} px (Conf: {coarse_conf:.2f})")
     print(f"  [OK] Stage 2 finished in {time.time() - t0:.2f}s")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # STAGE 3: Uniform Tiled Matching & Sub-Pixel Continuous ECC Refinement
-    # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print(f"\n[STAGE 3/5] Uniform Spatial Tiled Matching ({args.grid_size[0]}x{args.grid_size[1]}) & ECC...")
 
     candidate_csv = out_dir / "candidate_matches.csv"
     subpixel_csv = out_dir / "subpixel_tie_points.csv"
 
-    # Step 3.1: Streaming windowed tiled matching with coarse shift pre-positioning
     match_info = run_tiled_matching(
         src_input=source_cammap,
         ref_input=ref_cropped,
@@ -208,7 +172,6 @@ def run_pipeline(args):
         structural_method=args.structural_method
     )
 
-    # Step 3.2: Sub-Pixel Gauss-Newton ECC Refinement (< 0.2 px) via streaming windowed reads
     if match_info["total_matches"] > 0:
         matches_matrix = np.column_stack([match_info["src_pts"], match_info["ref_pts"]])
         ecc_info = refine_matches_subpixel(
@@ -222,7 +185,6 @@ def run_pipeline(args):
     else:
         refined_matches = np.empty((0, 5))
 
-    # Step 3.3: Fit 3-Layer Physics-Grounded Hybrid Transformation
     model_json = out_dir / "hybrid_transform_model.json"
     hybrid_model = HybridTransform()
     
@@ -280,7 +242,6 @@ def run_pipeline(args):
             inlier_df.to_csv(inliers_csv, index=False)
     else:
         print("  [WARNING] Sparse matches (<6); using coarse translation baseline as rigid model.")
-        # Create pure translation affine matrix: [ [1, 0, coarse_dx], [0, 1, coarse_dy] ]
         pure_affine = np.array([
             [1.0, 0.0, coarse_dx],
             [0.0, 1.0, coarse_dy]
@@ -293,9 +254,6 @@ def run_pipeline(args):
 
     print(f"  [OK] Stage 3 finished in {time.time() - t0:.2f}s")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # STAGE 4: High-Precision Sub-Pixel Warping
-    # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print("\n[STAGE 4/5] High-Precision Sub-Pixel Image Warping...")
 
@@ -311,9 +269,6 @@ def run_pipeline(args):
     )
     print(f"  [OK] Stage 4 finished in {time.time() - t0:.2f}s")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # STAGE 5: Multi-Pillar Verification & Quality Control
-    # ──────────────────────────────────────────────────────────────────────────
     t0 = time.time()
     print("\n[STAGE 5/5] Multi-Pillar Scientific Verification & Diagnostics...")
 

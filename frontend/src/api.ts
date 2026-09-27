@@ -97,7 +97,7 @@ export function createJob(
     request.onabort = () => reject(new Error('Upload was cancelled.'))
     request.onload = () => {
       let payload: Record<string, unknown> = {}
-      try { payload = JSON.parse(request.responseText) as Record<string, unknown> } catch { /* handled below */ }
+      try { payload = JSON.parse(request.responseText) as Record<string, unknown> } catch {}
       if (request.status < 200 || request.status >= 300) {
         reject(new Error(errorMessage(payload, request.status).replace(/^Request failed/, 'Job could not be created')))
         return

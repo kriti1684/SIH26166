@@ -13,13 +13,11 @@ print(f"URL   : {url}")
 
 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
 
-# Check if already completed
 if os.path.exists(dest_path):
     sz = os.path.getsize(dest_path) / (1024 * 1024)
     print(f"File already exists! Size: {sz:.2f} MB")
     sys.exit(0)
 
-# Resume if partial exists
 resume_byte_pos = 0
 if os.path.exists(temp_path):
     resume_byte_pos = os.path.getsize(temp_path)
@@ -41,7 +39,7 @@ try:
 
         with open(temp_path, mode) as f:
             while True:
-                chunk = resp.read(1024 * 1024) # 1 MB chunk
+                chunk = resp.read(1024 * 1024)
                 if not chunk:
                     break
                 f.write(chunk)

@@ -1,14 +1,3 @@
-"""
-src/registration/subpixel_ecc.py
-=====================================
-Sub-Pixel ECC Refiner (Task 3.2).
-
-Refines integer/approximate coordinate feature matches to continuous floating-point
-sub-pixel accuracy (< 0.2 px residual) using Gauss-Newton gradient descent 
-to maximize the Enhanced Correlation Coefficient (ECC) across local image patches.
-Supports both in-memory arrays and streaming GeoTIFF windowed patch reads.
-"""
-
 import csv
 from pathlib import Path
 from typing import Dict, Any, Union
@@ -18,14 +7,12 @@ import numpy as np
 import rasterio
 from rasterio.windows import Window
 
-# ─── Constants ───────────────────────────────────────────────────────────────
 
 DEFAULT_PATCH_SIZE = 64
 ECC_MAX_ITER = 50
 ECC_EPSILON = 1e-4
 MIN_ECC_SCORE = 0.60  # Minimum acceptable correlation score (rho)
 
-# ─── ECC Refinement ──────────────────────────────────────────────────────────
 
 def refine_matches_subpixel(
     src_img: Union[np.ndarray, str, Path],
@@ -95,7 +82,6 @@ def refine_matches_subpixel(
             isx, isy = int(round(sx)), int(round(sy))
             irx, iry = int(round(rx)), int(round(ry))
             
-            # Check patch boundaries
             if (isx - half_patch < 0 or isx + half_patch >= w_src or
                 isy - half_patch < 0 or isy + half_patch >= h_src or
                 irx - half_patch < 0 or irx + half_patch >= w_ref or
@@ -114,7 +100,6 @@ def refine_matches_subpixel(
             else:
                 ref_patch = ref_f32[iry-half_patch:iry+half_patch, irx-half_patch:irx+half_patch]
             
-            # Check for empty / flat patches
             std_thresh = 1.0 if src_patch.max() > 2.0 else 0.01
             if np.std(src_patch) < std_thresh or np.std(ref_patch) < std_thresh:
                 continue
@@ -164,7 +149,6 @@ def refine_matches_subpixel(
             
         refined_pts_arr = np.array(refined_pts, dtype=np.float64)
         
-        # Save to CSV
         with open(output_csv, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(["src_x", "src_y", "ref_x", "ref_y", "ecc_rho"])

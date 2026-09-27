@@ -1,6 +1,3 @@
-"""
-SQLAlchemy ORM Models.
-"""
 import uuid
 from datetime import datetime, timezone
 import enum
@@ -21,7 +18,6 @@ class RegistrationJob(Base):
     __tablename__ = "registration_jobs"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    celery_task_id = Column(String(36), nullable=True, index=True)
 
     sensor_src   = Column(String(16), nullable=False)
     sensor_ref   = Column(String(16), nullable=False)

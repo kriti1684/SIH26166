@@ -6,9 +6,6 @@ import numpy as np
 import spiceypy as spice
 import rasterio
 
-# ---------------------------------------------------------------------------
-# CRS definitions
-# ---------------------------------------------------------------------------
 # Geographic Moon CRS (lat/lon in degrees) — used as the SOURCE CRS when
 # assigning corner GCPs.  All ground-truth coordinates (from XML, PDS, ODE)
 # are in degrees, so this is the correct GCP SRS.
@@ -88,9 +85,6 @@ def parse_label(xml_path, sensor):
     return {'start_time': start_time_str, 'stop_time': stop_time_str, 'exposure_s': exposure_s}
 
 
-# ---------------------------------------------------------------------------
-# GCP-based warp helpers (shared by fallback AND SPICE paths)
-# ---------------------------------------------------------------------------
 
 def _warp_with_gcps(raw_tif: Path, out_tif: Path, gcps_geo: list, width: int, height: int,
                     poly_order: int = 1, num_threads: int = 0):
@@ -206,9 +200,6 @@ def fallback_4_corner(xml_file, raw_tif, out_tif):
         return False
 
 
-# ---------------------------------------------------------------------------
-# SPICE ray-tracing
-# ---------------------------------------------------------------------------
 
 VALID_SPICE_EXTS = ('.tls', '.tpc', '.bsp', '.tsc', '.bc', '.tf', '.ti', '.tm', '.bpc')
 
@@ -366,9 +357,6 @@ def apply_gcps_gdal(xml_file, raw_tif, out_tif, gcps):
     print(f"[SUCCESS] Georeferenced -> {out_tif}")
 
 
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(

@@ -58,7 +58,6 @@ for f in spks:
         print(f"Error {fname}: {ex}")
 
 print(f"Detected Object IDs across SPK: {all_objs}")
-# Print summary of SPKs
 ch2_spks = [x for x in spk_intervals if x[5] == -152 or "ch2" in x[4]]
 print(f"Total Chandrayaan-2 SPK entries: {len(ch2_spks)}")
 if ch2_spks:

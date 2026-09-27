@@ -1,16 +1,3 @@
-"""
-src/registration/verifier.py
-===============================
-Multi-Pillar Verification Engine (Task 4.2).
-
-Computes rigorous scientific quality control metrics for registered lunar imagery:
-  1. Sub-Pixel Reprojection RMSE (< 0.5 px target, < 0.2 px precision)
-  2. 2D Spatial Grid Shannon Entropy H(S) across a 4x4 grid (Distribution Uniformity)
-  3. Tie-point Inlier Ratio (>= 80%) & Convex Hull Coverage
-  4. JET False-Color Residual Heatmap (|Registered - Reference|) & Residual Displacement Plot
-  5. Comprehensive Deliverables Report (verification_metrics.json)
-"""
-
 import argparse
 import json
 import math
@@ -66,7 +53,6 @@ def compute_subpixel_residuals(
     mad_dx = float(np.median(np.abs(dx - med_dx)))
     mad_dy = float(np.median(np.abs(dy - med_dy)))
 
-    # Inliers within clipping threshold
     inlier_mask = dist <= clip_threshold_px
     inlier_count = int(np.sum(inlier_mask))
     total_count = len(residuals)
@@ -121,13 +107,11 @@ def generate_verification_plots(
     heatmap_path = diag_dir / "difference_heatmap.png"
     dashboard_path = diag_dir / "registration_verification.png"
 
-    # Normalize tiles for difference calculation
     h = min(reg_img.shape[0], ref_img.shape[0])
     w = min(reg_img.shape[1], ref_img.shape[1])
     reg_crop = reg_img[:h, :w].astype(np.float32)
     ref_crop = ref_img[:h, :w].astype(np.float32)
 
-    # Intensity normalization (percentile stretch 2-98)
     def normalize_band(arr):
         v_min, v_max = np.percentile(arr[arr > 0], 2) if np.any(arr > 0) else 0, np.percentile(arr, 98)
         if v_max > v_min:
@@ -137,16 +121,13 @@ def generate_verification_plots(
     reg_norm = normalize_band(reg_crop)
     ref_norm = normalize_band(ref_crop)
 
-    # Absolute difference
     diff = cv2.absdiff(reg_norm, ref_norm)
-    # Mask out nodata borders
     nodata_mask = (reg_crop == 0) | (ref_crop == 0)
     diff[nodata_mask] = 0
 
     jet_diff = cv2.applyColorMap(diff, cv2.COLORMAP_JET)
     jet_diff[nodata_mask] = [0, 0, 0]
 
-    # 1. Save 3-panel Difference Heatmap Figure
     fig, axes = plt.subplots(1, 3, figsize=(18, 6), facecolor="#1a1a24")
     for ax in axes:
         ax.set_facecolor("#121218")
@@ -171,16 +152,13 @@ def generate_verification_plots(
     fig.savefig(heatmap_path, dpi=150, facecolor=fig.get_facecolor(), edgecolor="none")
     plt.close(fig)
 
-    # 2. Save 4-panel Comprehensive Diagnostic Dashboard
     fig, axes = plt.subplots(2, 2, figsize=(14, 12), facecolor="#1a1a24")
 
-    # Panel (0,0): Difference Heatmap
     axes[0, 0].set_facecolor("#121218")
     axes[0, 0].imshow(cv2.cvtColor(jet_diff, cv2.COLOR_BGR2RGB))
     axes[0, 0].set_title("Residual Error Heatmap (|Warped - Ref|)", color="white", fontsize=11)
     axes[0, 0].axis("off")
 
-    # Panel (0,1): Residual Scatter Plot (dx vs dy)
     ax_scatter = axes[0, 1]
     ax_scatter.set_facecolor("#121218")
     dx = res_stats["dx"]
@@ -207,7 +185,6 @@ def generate_verification_plots(
     ax_scatter.legend(loc="upper right", fontsize=8, facecolor="#222230", edgecolor="#444455", labelcolor="white")
     ax_scatter.grid(True, color="#333344", linestyle=":", alpha=0.6)
 
-    # Panel (1,0): Tie-point Spatial Distribution & Coverage
     ax_dist = axes[1, 0]
     ax_dist.set_facecolor("#121218")
     ax_dist.imshow(ref_norm, cmap="gray", alpha=0.6)
@@ -231,7 +208,6 @@ def generate_verification_plots(
     ax_dist.set_title("Spatial Distribution & Convex Hull", color="white", fontsize=11)
     ax_dist.axis("off")
 
-    # Panel (1,1): Summary KPI Card
     ax_card = axes[1, 1]
     ax_card.set_facecolor("#121218")
     ax_card.axis("off")
@@ -295,11 +271,9 @@ def generate_overview_visualizations(
         s_u8 = norm(s)
         r_u8 = norm(r)
 
-        # 1. Side by side
         canvas = np.hstack([s_u8, np.full((h, 20), 40, dtype=np.uint8), r_u8])
         cv2.imwrite(str(diag_dir / "overview_side_by_side.png"), canvas)
 
-        # 2. False color
         w_min = min(w_s, w_r)
         comp = np.zeros((h, w_min, 3), dtype=np.uint8)
         comp[:, :, 2] = s_u8[:, :w_min]  # Red: Registered Source
@@ -345,23 +319,19 @@ def run_verification(
         except Exception:
             reference_gsd_m = None
 
-        # Read decimated overviews for global difference analysis
         preview_scale = min(1.0, 1024.0 / max(ref_w, ref_h))
         out_shape = (1, max(1, int(round(ref_h * preview_scale))), max(1, int(round(ref_w * preview_scale))))
         ref_thumb = ref_ds.read(1, out_shape=out_shape, resampling=Resampling.bilinear)
         reg_thumb = reg_ds.read(1, out_shape=out_shape, resampling=Resampling.bilinear)
 
-        # Compute active mutual overlap area (excluding nodata/black borders)
         active_mask = (reg_thumb > 0) & (ref_thumb > 0)
         active_ratio = float(np.mean(active_mask)) if np.any(active_mask) else 1.0
         total_scene_area = float(ref_w * ref_h) * max(0.1, active_ratio)
 
-    # 1. Retrieve tie points and evaluate residuals
     pts_src = None
     pts_ref = None
     pred_ref_pts = None
 
-    # Check for subpixel tie points CSV or candidate matches
     csv_candidates = [
         tie_points_csv,
         output_dir / "tie_points_inliers.csv",
@@ -384,7 +354,6 @@ def run_verification(
         pts_src = loaded_df[["src_x", "src_y"]].to_numpy(dtype=np.float64)
         pts_ref = loaded_df[["ref_x", "ref_y"]].to_numpy(dtype=np.float64)
 
-    # Try loading hybrid model to get predictions and layer stats
     model_json_path = hybrid_model_json or (output_dir / "hybrid_transform_model.json")
     model_stats = {}
     model = None
@@ -396,7 +365,6 @@ def run_verification(
                 model_stats = model_data.get("stats", {})
             from src.registration.hybrid_transform import HybridTransform
             model = HybridTransform.load(model_json_path)
-            # Prioritize the verified model inliers for ground-truth residual verification
             if getattr(model, "src_inliers", None) is not None and getattr(model, "ref_inliers", None) is not None and len(model.src_inliers) >= 3:
                 pts_src = model.src_inliers
                 pts_ref = model.ref_inliers
@@ -404,7 +372,6 @@ def run_verification(
             pass
 
     if pts_src is not None and pts_ref is not None:
-        # If we have model, predict ref points from src points
         rmse_drift_val = None
         rmse_tps_cv = None
         try:
@@ -412,12 +379,10 @@ def run_verification(
                 from src.registration.hybrid_transform import HybridTransform
                 model = HybridTransform.load(model_json_path)
             
-            # 1. Baseline Drift Residual (Layer 1 + 2) without elastic overfitting
             pred_ref_drift = model.predict(pts_src, use_tps=False)
             drift_res = np.hypot(pts_ref[:, 0] - pred_ref_drift[:, 0], pts_ref[:, 1] - pred_ref_drift[:, 1])
             rmse_drift_val = float(np.sqrt(np.mean(drift_res ** 2)))
 
-            # 2. Check if TPS was active
             tps_active = getattr(model, "tps_rbf_x", None) is not None
             if tps_active and len(pts_src) >= 8:
                 # K-Fold Cross-Validation for TPS with normalized coordinates
@@ -458,7 +423,6 @@ def run_verification(
         if rmse_tps_cv is not None:
             res_stats["rmse_tps_cv_px"] = round(rmse_tps_cv, 4)
     else:
-        # Synthesize fallback residual metrics from overview cross-correlation
         print("  [VERIFY] Note: No tie-point CSV found; computing global tile residual.")
         res_stats = {
             "rmse_px": model_stats.get("rmse_layer3_tps", 0.35),
@@ -480,7 +444,6 @@ def run_verification(
     has_tie_point_evidence = pts_src is not None and pts_ref is not None and len(pts_src) >= 3
     metrics_are_measured = bool(has_tie_point_evidence and model_prediction_valid)
 
-    # 2. Spatial Entropy H(S)
     if pts_ref is not None and len(pts_ref) > 0:
         spatial_entropy = compute_spatial_entropy(pts_ref, (ref_h, ref_w), grid_size=grid_size)
         convex_hull_cov = compute_convex_hull_coverage(pts_ref, total_scene_area)
@@ -507,7 +470,6 @@ def run_verification(
 
     normalized_entropy = float(np.clip(spatial_entropy / max_entropy, 0.0, 1.0))
 
-    # 3. Overall Composite Scientific Confidence Score
     # Weights: RMSE (0.40), Spatial Entropy (0.25), Inlier Ratio (0.20), Hull Coverage (0.15)
     rmse_score = float(np.clip(1.0 - (res_stats["rmse_px"] / 1.5), 0.0, 1.0))
     inlier_score = float(np.clip(max(res_stats["inlier_ratio"], res_stats["inlier_count"] / 40.0), 0.0, 1.0))
@@ -523,7 +485,6 @@ def run_verification(
 
     rmse_val = res_stats["rmse_px"]
     
-    # Task 6.2: Hard Verification Gates
     if res_stats["inlier_count"] < 15:
         verdict = "REJECTED (Insufficient Inliers)"
     elif (convex_hull_cov * 100.0) < 5.0:  # Relaxed for narrow WAC strips
@@ -533,7 +494,6 @@ def run_verification(
     elif rmse_val >= 1.0:  # Relaxed from 0.5 to 1.0
         verdict = "REJECTED (RMSE Out of Bounds)"
     else:
-        # Passed all hard gates
         if rmse_val < target_rmse_threshold or composite_confidence >= 0.65:
             verdict = "VERIFIED_SUCCESS"
         elif composite_confidence >= 0.50:
@@ -544,14 +504,12 @@ def run_verification(
     if not metrics_are_measured:
         verdict = "UNCERTAIN (No valid tie-point model residuals)"
 
-    # 4. Generate Visual Deliverables (Heatmaps & Dashboards)
     generate_verification_plots(
         reg_thumb, ref_thumb, res_stats, pts_src, pts_ref, diag_dir,
         full_shape=(ref_h, ref_w), verdict_override=verdict,
         metrics_are_measured=metrics_are_measured,
     )
 
-    # 5. Compile Deliverables Report
     metrics_report = {
         "verdict": verdict,
         "metrics_are_measured": metrics_are_measured,
@@ -586,7 +544,6 @@ def run_verification(
     with open(metrics_json_path, "w", encoding="utf-8") as f:
         json.dump(metrics_report, f, indent=2)
 
-    # Generate overview side-by-side and false color composite
     generate_overview_visualizations(registered_path, ref_path, diag_dir)
 
     drift_note = f" (Baseline Drift: {res_stats['rmse_baseline_drift_px']:.4f} px)" if "rmse_baseline_drift_px" in res_stats else ""

@@ -1,6 +1,3 @@
-"""
-Database configuration using SQLAlchemy.
-"""
 from sqlalchemy import create_engine, inspect, text, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from backend.config import DATABASE_URL

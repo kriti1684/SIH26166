@@ -23,12 +23,10 @@ def test_iirs_band_wavelength_math():
 
 
 def test_compute_band_entropy():
-    # Uniform constant image should have low entropy
     flat = np.ones((50, 50), dtype=np.float32) * 100.0
     ent_flat = compute_band_entropy(flat)
     assert ent_flat == 0.0
 
-    # Textured image with noise should have higher entropy
     np.random.seed(42)
     noise = np.random.uniform(10, 200, (50, 50)).astype(np.float32)
     ent_noise = compute_band_entropy(noise)
@@ -36,7 +34,6 @@ def test_compute_band_entropy():
 
 
 def test_iirs_synthetic_cube_selection(tmp_path):
-    # Create a synthetic 10-band IIRS cube
     cube_path = tmp_path / "synthetic_iirs.tif"
     profile = {
         "driver": "GTiff",
@@ -50,7 +47,6 @@ def test_iirs_synthetic_cube_selection(tmp_path):
 
     with rasterio.open(cube_path, "w", **profile) as dst:
         for b in range(1, 11):
-            # Make band 3 have highest contrast and variance
             if b == 3:
                 data = np.random.uniform(50, 250, (100, 100)).astype(np.float32)
             else:
@@ -61,7 +57,6 @@ def test_iirs_synthetic_cube_selection(tmp_path):
     assert result["selected_band"] == 3
     assert result["entropy"] > 0
 
-    # Test extraction
     out_band = tmp_path / "extracted_band.tif"
     extract_or_synthesize_band(cube_path, out_band, selected_band=result["selected_band"])
     assert out_band.exists()

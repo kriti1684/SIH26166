@@ -1,6 +1,3 @@
-"""
-FastAPI Entrypoint.
-"""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config import PROJECT_NAME, VERSION, API_V1_PREFIX, CORS_ORIGINS, DATABASE_URL
@@ -31,7 +28,6 @@ def check_health():
         "status": "online",
         "version": VERSION,
         "db": DATABASE_URL.split(":")[0],
-        "celery_queue": "in-process",
         "gpu_available": torch.cuda.is_available(),
         "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
     }

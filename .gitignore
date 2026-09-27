@@ -133,4 +133,6 @@ data/storage/
 frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+!frontend/src/lib/
+!frontend/src/lib/**
 

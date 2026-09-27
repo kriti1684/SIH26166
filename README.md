@@ -455,7 +455,7 @@ The deployment potential of ChandaShakti is evaluated across three core engineer
 │• Continuous Gauss-Newton ECC │            │• Direct PDS4 / SPICE Ingest  │            │• $0 Commercial License Fees  │
 │• 3-Layer Pushbroom Physics   │            │• Zero Operator Skill Barrier │            │• Runs on $0.50/hr Cloud GPU  │
 │• <50MB RAM Streaming Warper  │            │• 1-Click Visual QC Dashboard │            │• De-Risks $100M+ Missions    │
-│• 18/18 Unit Tests Passing    │            │• REST API & Docker Ready     │            │• Unlocks New Commercial Data │
+│• 18/18 Unit Tests Passing    │            │• REST API & Local Dashboard │            │• Unlocks New Commercial Data │
 └──────────────────────────────┘            └──────────────────────────────┘            └──────────────────────────────┘
 ```
 
@@ -477,11 +477,11 @@ The deployment potential of ChandaShakti is evaluated across three core engineer
 ### 9.2 Operational Feasibility (How easily can it integrate into existing ground systems?)
 * **100% Technological Sovereignty (Zero USGS ISIS3 Dependency):**
   - Legacy pipelines depend on the USGS Integrated Software for Imagers and Spectrometers (ISIS3), which is Linux-only, requires complex Anaconda environments, and demands hundreds of gigabytes of external cartography dependencies.
-  - ChandaShakti is built on a **pure Python/C++ stack** (PyTorch, GDAL, Rasterio, SpiceyPy, OpenCV, SciPy). It runs natively on **Windows 10/11, Linux, macOS, and Docker containers** with zero external legacy binaries.
+  - ChandaShakti is built on a **pure Python/C++ stack** (PyTorch, GDAL, Rasterio, SpiceyPy, OpenCV, SciPy). It runs natively on **Windows 10/11, Linux, and macOS** with zero external legacy binaries.
 * **Native Planetary Format Support:**
   - Directly ingests planetary data standards: **PDS4 XML/IMG, PDS3 LBL/IMG, GeoTIFF, and NAIF SPICE kernels**. No pre-conversion to proprietary formats is required.
 * **Hands-Off Automated Workflow:**
-  - Operates either as a single CLI command (`python run_pipeline.py`) or as an asynchronous RESTful microservice (FastAPI + Celery + Redis). It can be hooked directly into ground station telemetry ingestion queues.
+  - Operates either as a single CLI command (`python run_pipeline.py`) or through a FastAPI dashboard API that starts each registration pipeline in-process.
 * **Zero Operator Skill Barrier:**
   - Replaces manual tie-point selection (which requires trained photogrammetrists) with automated execution. Automatically generates human-auditable diagnostic artifacts (`registration_verification.png`, `overview_false_color.png`, `difference_heatmap.png`) that can be reviewed in seconds.
 
@@ -508,7 +508,7 @@ The deployment potential of ChandaShakti is evaluated across three core engineer
 | **Technical** | Feature Detection Robustness | SIFT/ORB (Fails on low-contrast regolith) | Dense LoFTR Transformer + Phase Congruency | **FEASIBLE (High)** |
 | **Technical** | Pushbroom Orbital Modeling | Rigid 2D Affine / Homography | 3-Layer Physics (Affine + Drift + TPS) | **FEASIBLE (High)** |
 | **Technical** | Memory Footprint & Scalability | Crashes on large strips (>10GB RAM) | Streaming Block Warper (<50MB RAM) | **FEASIBLE (High)** |
-| **Operational** | System Setup & Dependencies | Complex Linux ISIS3 Conda stack | Pure Python/C++ (Windows/Linux/Docker) | **FEASIBLE (High)** |
+| **Operational** | System Setup & Dependencies | Complex Linux ISIS3 Conda stack | Pure Python/C++ (Windows/Linux/macOS) | **FEASIBLE (High)** |
 | **Operational** | Ingest Compatibility | Requires format pre-conversion | Direct PDS4, PDS3, SPICE, COG Ingest | **FEASIBLE (High)** |
 | **Operational** | Operator Training Time | Weeks of photogrammetry training | Fully autonomous; zero-click execution | **FEASIBLE (High)** |
 | **Economic** | Cost per Swath Pair | $300 – $600 (Manual labor) | < $0.05 (Cloud compute) | **VIABLE (High ROI)** |
@@ -624,7 +624,7 @@ SIH1/
 │   ├── models.py                       # Database schema
 │   ├── routes.py                       # RESTful registration endpoints
 │   ├── schemas.py                      # Pydantic request / response schemas
-│   └── worker.py                       # Celery / Redis asynchronous task worker
+│   └── worker.py                       # In-process registration pipeline runner
 │
 ├── configs/
 │   └── default_config.json             # Hyperparameters & RANSAC tolerance settings
@@ -679,7 +679,6 @@ SIH1/
 │   ├── test_phase3_matching.py         # Phase 3 unit tests (Tiling, LoFTR, Sub-Pixel ECC)
 │   └── test_phase4_warp_verify.py      # Phase 4 & 5 unit tests (Hybrid Transform, Warper, Metrics)
 │
-├── docker-compose.yml                  # Redis deployment for Celery backend workers
 ├── main.py                             # Root CLI entrypoint
 ├── run_pipeline.py                     # Production CLI execution script
 ├── requirements.txt                    # Python dependency manifest
@@ -717,15 +716,9 @@ pytest tests/ -v
 *(All 18 tests pass in $< 5\text{ seconds}$ with zero errors)*
 
 ### 12.3 Launching the API Backend
-To run the background task queue and RESTful web dashboard API:
+To run the FastAPI backend for the web dashboard:
 
 ```bash
-# Start Redis cache
-docker-compose up -d
-
-# Start Celery worker
-celery -A backend.worker.celery_app worker --loglevel=info
-
 # Start FastAPI server
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```

@@ -1,4 +1,3 @@
-"""Background worker that runs the lunar registration pipeline and persists progress."""
 import json
 import os
 import shutil
@@ -59,7 +58,6 @@ def run_registration_pipeline(job_id: str, params: dict):
             db,
             job_id,
             status=JobStatus.PROCESSING,
-            celery_task_id=f"local-{job_id[:8]}",
             started_at=datetime.now(timezone.utc),
             current_stage="Preparing pipeline",
             progress_pct=1,

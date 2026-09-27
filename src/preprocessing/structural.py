@@ -1,31 +1,3 @@
-"""
-src/preprocessing/structural.py
-====================================
-Universal Modality-Invariant Structural Representation Engine.
-
-Converts any lunar raster (OHRC, IIRS, TMC-2, NAC, WAC) into an
-illumination-invariant structural map suitable for cross-sensor feature matching.
-
-Theory:
--------
-Classical feature detectors (SIFT, SuperPoint) fail when solar illumination changes
-because they detect intensity gradients — gradients that flip sign or vanish when
-the sun moves from 8.6 deg to 66.2 deg.
-
-The solution: Phase Congruency (PC) — a Fourier-theoretic measure that detects
-feature points where local frequency components are maximally in phase. PC is:
-  1. Completely contrast-invariant (works for both deep shadow and flat noon terrain)
-  2. Completely polarity-invariant (shadow edges and lit edges produce the same response)
-  3. Multi-scale (detects crater rims at all diameters)
-
-The implementation uses Log-Gabor filters following Kovesi (1996, 1999).
-
-Outputs per image:
-  - Phase Congruency map (floating point, 0-1)
-  - Shadow validity mask (1 = valid, 0 = shadowed/invalid)
-  - Normalized Gradient Magnitude (Sobel, fast fallback for uniformly lit terrain)
-"""
-
 import numpy as np
 import cv2
 from pathlib import Path
@@ -33,7 +5,6 @@ from typing import Optional, Dict
 import rasterio
 from rasterio.windows import Window
 
-# ─── Log-Gabor Filter Bank Parameters ───────────────────────────────────────
 # These are Kovesi's canonical defaults, tuned for planetary imagery
 NUM_SCALES = 4         # Number of radial frequency scales
 NUM_ORIENTATIONS = 6   # Number of filter orientations (every 30 deg)
@@ -43,7 +14,6 @@ SIGMA_ON_F = 0.55      # Bandwidth of Log-Gabor filter (sigma/f ratio)
 NOISE_THRESH_FACTOR = 2.0  # Noise threshold factor
 
 
-# ─── Log-Gabor Filter Construction ──────────────────────────────────────────
 
 def _log_gabor_filter(rows: int, cols: int, f0: float, sigma_f: float) -> np.ndarray:
     """
@@ -77,7 +47,6 @@ def _build_filter_bank(rows: int, cols: int) -> list:
     return filters
 
 
-# ─── Phase Congruency ────────────────────────────────────────────────────────
 
 def compute_phase_congruency(
     image: np.ndarray,
@@ -133,20 +102,17 @@ def compute_phase_congruency(
 
         lf = _log_gabor_filter(rows, cols, f0, sigma_f).astype(np.float64)
 
-        # Apply filter in frequency domain
         IF = IM * lf
         resp = np.fft.ifft2(IF)
 
-        even = np.real(resp)  # Even-symmetric (cos) response
-        odd  = np.imag(resp)  # Odd-symmetric (sin) response
+        even = np.real(resp)
+        odd  = np.imag(resp)
 
-        # Amplitude at this scale
         An = np.sqrt(even**2 + odd**2) + 1e-10
 
-        # Accumulate amplitude-weighted phasors
         # cos(phi) = even/An, sin(phi) = odd/An
-        xsum += even  # = An * cos(phi_n)
-        ysum += odd   # = An * sin(phi_n)
+        xsum += even
+        ysum += odd
         sum_an += An
 
         noise_energies.append(np.median(An))
@@ -161,12 +127,10 @@ def compute_phase_congruency(
     # PC = max(0, |phasor_sum| - tau) / (sum_An + epsilon)
     pc = np.maximum(0.0, coherent - noise_floor) / (sum_an + 1e-10)
 
-    # Clip to [0, 1]
     pc = np.clip(pc, 0.0, 1.0)
     return pc.astype(np.float32)
 
 
-# ─── Normalized Gradient Field (Sobel) ──────────────────────────────────────
 
 def compute_normalized_gradient(image: np.ndarray) -> np.ndarray:
     """
@@ -184,7 +148,6 @@ def compute_normalized_gradient(image: np.ndarray) -> np.ndarray:
     return mag.astype(np.float32)
 
 
-# ─── Shadow / Photometric Validity Mask ─────────────────────────────────────
 
 def compute_shadow_mask(
     image: np.ndarray,
@@ -235,7 +198,6 @@ def compute_shadow_mask(
     return valid_mask
 
 
-# ─── Master Structural Representation Function ──────────────────────────────
 
 def compute_structural_representation(
     image: np.ndarray,
@@ -263,7 +225,6 @@ def compute_structural_representation(
           'shadow_mask': Binary validity mask (uint8, 0 or 1)
           'clahe': CLAHE-enhanced image (uint8)
     """
-    # Normalize to uint8 for CLAHE
     img_f = image.astype(np.float32)
     valid = img_f[img_f > 0]
     if len(valid) < 100:
@@ -276,17 +237,14 @@ def compute_structural_representation(
     p2, p98 = np.percentile(valid, (2, 98))
     img_u8 = np.clip((img_f - p2) / (p98 - p2 + 1e-6) * 255.0, 0, 255).astype(np.uint8)
 
-    # CLAHE local contrast enhancement
     if apply_clahe:
         clahe = cv2.createCLAHE(clipLimit=clahe_clip, tileGridSize=(clahe_grid, clahe_grid))
         img_clahe = clahe.apply(img_u8)
     else:
         img_clahe = img_u8.copy()
 
-    # Shadow / photometric validity mask
     shadow_mask = compute_shadow_mask(img_f, shadow_pct_threshold=shadow_pct_threshold)
 
-    # Structural representation
     if method == "phase_congruency":
         structural = compute_phase_congruency(img_clahe.astype(np.float64))
     elif method == "gradient":
@@ -298,7 +256,6 @@ def compute_structural_representation(
     else:
         raise ValueError(f"Unknown method: {method}. Use 'phase_congruency', 'gradient', or 'combined'.")
 
-    # Zero out structural features inside shadow regions
     structural *= shadow_mask.astype(np.float32)
 
     return {

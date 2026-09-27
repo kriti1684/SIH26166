@@ -1,9 +1,3 @@
-"""Bridge to LunarSynapse React Dashboard.
-Ingests real Chandrayaan-2 OHRC and LRO NAC registered products and metrics
-into the LunarSynapse SQLite database and image storage so the React/Vite dashboard
-displays real satellite co-registration results with multi-pillar physics radar charts.
-"""
-
 import json
 import sqlite3
 import shutil
@@ -13,7 +7,6 @@ import numpy as np
 import rasterio
 import cv2
 
-# Project paths
 ROOT_DIR = Path(__file__).resolve().parent.parent
 SIH_DIR = ROOT_DIR / "SIH26166"
 DATA_DIR = SIH_DIR / "data"
@@ -27,7 +20,6 @@ def export_web_png(tif_path: Path, out_png: Path, max_dim: int = 1024, crop_cent
     with rasterio.open(tif_path) as src:
         h, w = src.height, src.width
         if crop_center and (h > max_dim or w > max_dim):
-            # Read a clean 1600x1600 center crop
             size = min(1600, min(h, w))
             row0 = max(0, (h - size) // 2)
             col0 = max(0, (w - size) // 2)
@@ -37,7 +29,6 @@ def export_web_png(tif_path: Path, out_png: Path, max_dim: int = 1024, crop_cent
             dec = max(1, max(h, w) // max_dim)
             data = src.read(1, out_shape=(h // dec, w // dec), resampling=rasterio.enums.Resampling.bilinear)
             
-    # Normalize uint8 with 1-99 percentile stretch
     vals = data[data > 0]
     if len(vals) > 0:
         p1, p99 = np.percentile(vals, (1, 99))
@@ -46,7 +37,6 @@ def export_web_png(tif_path: Path, out_png: Path, max_dim: int = 1024, crop_cent
     else:
         scaled = np.zeros(data.shape, dtype=np.uint8)
 
-    # Resize cleanly to max_dim if still larger
     if scaled.shape[0] > max_dim or scaled.shape[1] > max_dim:
         scaled = cv2.resize(scaled, (max_dim, max_dim), interpolation=cv2.INTER_AREA)
 
@@ -60,10 +50,8 @@ def bridge_project_to_dashboard(project_dir: Path):
     diag_dir = project_dir / "diagnostics"
     norm_dir = project_dir / "normalized"
 
-    # Ensure dashboard directories exist
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Locate files
     ohrc_files = list(norm_dir.glob("ch2_ohr*normalized.tif"))
     nac_files = list(norm_dir.glob("M*normalized.tif"))
     reg_files = list(project_dir.glob("*registered.tif"))
@@ -76,7 +64,6 @@ def bridge_project_to_dashboard(project_dir: Path):
     nac_path = nac_files[0]
     reg_path = reg_files[0]
 
-    # Metrics JSON
     metrics_path = diag_dir / "verification_metrics.json"
     if metrics_path.exists():
         with open(metrics_path, "r", encoding="utf-8") as f:
@@ -91,7 +78,6 @@ def bridge_project_to_dashboard(project_dir: Path):
         }
 
     print("Converting high-resolution rasters to web-ready overlays...")
-    # Generate web display images
     src_png_path = IMAGES_DIR / "OBS-CH2-OHRC-REAL.png"
     tgt_png_path = IMAGES_DIR / "OBS-LRO-NAC-REAL.png"
     reg_png_path = IMAGES_DIR / "REG-REAL-OHRC-WARPED.png"
@@ -101,24 +87,20 @@ def bridge_project_to_dashboard(project_dir: Path):
     export_web_png(nac_path, tgt_png_path, max_dim=800)
     export_web_png(reg_path, reg_png_path, max_dim=800)
 
-    # Generate or copy difference image
     orig_diff = diag_dir / "difference_heatmap.png"
     if orig_diff.exists():
         shutil.copy(orig_diff, diff_png_path)
     else:
-        # Generate JET difference directly from the web images
         i1 = cv2.imread(str(reg_png_path), 0)
         i2 = cv2.imread(str(tgt_png_path), 0)
         diff = cv2.absdiff(i1, i2)
         diff_color = cv2.applyColorMap(diff, cv2.COLORMAP_JET)
         cv2.imwrite(str(diff_png_path), diff_color)
 
-    # Connect to SQLite
     print(f"Connecting to LunarSynapse database: {DB_PATH}")
     conn = sqlite3.connect(str(DB_PATH))
     cursor = conn.cursor()
 
-    # Create tables if not present
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS observations (
         id VARCHAR(64) PRIMARY KEY,
@@ -185,7 +167,6 @@ def bridge_project_to_dashboard(project_dir: Path):
 
     now = datetime.utcnow().isoformat()
 
-    # 1. Insert Real OHRC Observation
     cursor.execute("""
     INSERT OR REPLACE INTO observations VALUES (
         'OBS-CH2-OHRC-REAL', 'OHRC', ?, ?, ?,
@@ -196,7 +177,6 @@ def bridge_project_to_dashboard(project_dir: Path):
     )
     """, (f"/data/storage/images/{src_png_path.name}", str(ohrc_path), now, now))
 
-    # 2. Insert Real LRO NAC Observation
     cursor.execute("""
     INSERT OR REPLACE INTO observations VALUES (
         'OBS-LRO-NAC-REAL', 'NAC', ?, ?, ?,
@@ -207,7 +187,6 @@ def bridge_project_to_dashboard(project_dir: Path):
     )
     """, (f"/data/storage/images/{tgt_png_path.name}", str(nac_path), now, now))
 
-    # 3. Insert Real Correspondence
     cursor.execute("""
     INSERT OR REPLACE INTO correspondences VALUES (
         'CORR-CH2-LRO-REAL-001', 'OBS-CH2-OHRC-REAL', 'OBS-LRO-NAC-REAL',
@@ -223,7 +202,6 @@ def bridge_project_to_dashboard(project_dir: Path):
         now
     ))
 
-    # 4. Insert Multi-Pillar Evidence
     cursor.execute("""
     INSERT OR REPLACE INTO correspondence_evidence VALUES (
         'EV-CH2-LRO-REAL-001', 'CORR-CH2-LRO-REAL-001',
@@ -242,7 +220,6 @@ def bridge_project_to_dashboard(project_dir: Path):
         now
     ))
 
-    # 5. Insert Sub-Pixel Registration Experiment
     H_matrix = [[0.3507, 0.0, 1491.47], [0.0, 0.3507, -1994.70], [0.0, 0.0, 1.0]]
     cursor.execute("""
     INSERT OR REPLACE INTO registration_experiments VALUES (
@@ -257,7 +234,7 @@ def bridge_project_to_dashboard(project_dir: Path):
         f"/data/storage/images/{reg_png_path.name}",
         f"/data/storage/images/{diff_png_path.name}",
         metrics.get("rmse_px", 0.42),
-        0.18, # subpixel error in px
+        0.18,
         metrics.get("inlier_ratio", 0.85),
         metrics.get("convex_hull_coverage_pct", 74.2) / 100.0,
         json.dumps(metrics),

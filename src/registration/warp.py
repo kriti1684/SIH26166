@@ -1,16 +1,3 @@
-"""
-src/registration/warp.py
-===========================
-High-Precision Sub-Pixel Image Warper (Task 4.1).
-
-Warps a source bounding-box raster onto the exact reference raster pixel grid 
-using bicubic/spline interpolation (order=3) guided by the 3-Layer Hybrid 
-Transformation (Affine + 1D Drift + Thin Plate Spline).
-
-Preserves full georeferencing metadata (Moon CRS, affine geotransform) to produce 
-a sub-pixel registered GeoTIFF.
-"""
-
 import argparse
 from pathlib import Path
 from typing import Union
@@ -37,20 +24,17 @@ def invert_coordinates_fixedpoint(
     Fixed-point Newton-Raphson inversion of the forward hybrid transformation.
     Given (x_ref, y_ref), finds (x_src, y_src) such that model.predict(x_src, y_src) == (x_ref, y_ref).
     """
-    # Linear affine inverse as initial approximation
-    A = model.affine_matrix  # 2x3: [ [a00, a01, tx], [a10, a11, ty] ]
+    A = model.affine_matrix
     M = A[:, :2]
     t = A[:, 2]
     M_inv = np.linalg.inv(M)
 
-    # Initial guess: x_src0 = M_inv @ (ref_coords - t)
     shifted = ref_coords - t.reshape(1, 2)
     src_guess = (M_inv @ shifted.T).T
 
     for _ in range(max_iters):
         pred_ref = model.predict(src_guess)
         delta_ref = ref_coords - pred_ref
-        # Correction using affine Jacobian
         src_guess += (M_inv @ delta_ref.T).T
 
     return src_guess
@@ -75,7 +59,6 @@ def generate_composite_overlay(
         src_dec = s.read(1, out_shape=out_shape, resampling=Resampling.average)
         ref_dec = r.read(1, out_shape=out_shape, resampling=Resampling.average)
 
-    # Normalize to 0-255 uint8 for visualization
     def to_u8(arr):
         v_min, v_max = np.percentile(arr[arr > 0], 2) if np.any(arr > 0) else 0, np.percentile(arr, 98)
         if v_max > v_min:
@@ -90,11 +73,10 @@ def generate_composite_overlay(
     min_w = min(src_u8.shape[1], ref_u8.shape[1])
 
     rgb = np.zeros((min_h, min_w, 3), dtype=np.uint8)
-    rgb[..., 0] = src_u8[:min_h, :min_w]  # Red = Registered Source
-    rgb[..., 1] = ref_u8[:min_h, :min_w]  # Green = Reference
-    rgb[..., 2] = ref_u8[:min_h, :min_w]  # Blue = Reference
+    rgb[..., 0] = src_u8[:min_h, :min_w]
+    rgb[..., 1] = ref_u8[:min_h, :min_w]
+    rgb[..., 2] = ref_u8[:min_h, :min_w]
 
-    # Convert to BGR for OpenCV saving
     bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     cv2.imwrite(str(output_png), bgr)
     print(f"  [WARP] Generated diagnostic composite overlay: {output_png}")
@@ -133,7 +115,6 @@ def warp_image_subpixel(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 1. Load transform model if provided as path
     if isinstance(transform, (str, Path)):
         model = HybridTransform.load(Path(transform))
     else:
@@ -146,7 +127,6 @@ def warp_image_subpixel(
         if hasattr(model, 'scale'):
             model = model.scale(scale_factor)
 
-    # Attempt to derive exact inverse transform
     inv_model = None
     try:
         inv_model = model.get_inverse_transform()
@@ -170,7 +150,6 @@ def warp_image_subpixel(
             from rasterio.transform import Affine
             ref_transform = ref_transform * Affine.scale(1.0 / scale_factor, 1.0 / scale_factor)
 
-        # Setup output profile matching reference georeferencing
         profile = ref_ds.profile.copy()
         profile.update({
             "driver": "GTiff",
@@ -309,7 +288,6 @@ def warp_image_subpixel(
 
     print(f"[WARP] [OK] Sub-pixel registered GeoTIFF saved: {output_path}")
 
-    # Generate composite overlay
     diag_dir = output_path.parent / "diagnostics"
     diag_dir.mkdir(parents=True, exist_ok=True)
     overlay_path = diag_dir / "warp_composite_overlay.png"

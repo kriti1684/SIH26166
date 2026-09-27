@@ -1,14 +1,3 @@
-"""
-src/registration/hybrid_transform.py
-=========================================
-Physics-Grounded 3-Layer Hybrid Transformation (Task 3.3).
-
-Generates a sub-pixel accurate, multi-layer deformation model from tie points:
-  - Layer 1: RANSAC Affine (Rigid baseline)
-  - Layer 2: 1D Scanline Polynomial (absorbs pushbroom pitch/rate jitter along Y-axis)
-  - Layer 3: Regularized Thin Plate Spline (TPS) (compensates micro-topographic relief)
-"""
-
 import json
 from pathlib import Path
 from typing import Tuple, Dict, Any
@@ -17,7 +6,6 @@ import cv2
 import numpy as np
 from scipy.interpolate import RBFInterpolator
 
-# ─── 3-Layer Transformation Engine ───────────────────────────────────────────
 
 class HybridTransform:
     def __init__(self):
@@ -106,7 +94,6 @@ class HybridTransform:
         src_in = src_pts[inlier_mask]
         ref_in = ref_pts[inlier_mask]
         
-        # Apply Layer 1
         src_homog = np.hstack([src_in, np.ones((len(src_in), 1))])
         pred_L1 = (A @ src_homog.T).T
         
@@ -215,7 +202,6 @@ class HybridTransform:
         self.ref_inliers = ref_in
         self.poly_degree = poly_degree
 
-        # ── Compile parameters and stats ─────────────────────────────────────
         self.layer_params = {
             "inlier_count": int(np.sum(inlier_mask)),
             "total_points": N,
@@ -245,17 +231,14 @@ class HybridTransform:
         if src_pts.ndim == 1:
             src_pts = src_pts.reshape(1, -1)
             
-        # L1: Affine
         src_homog = np.hstack([src_pts, np.ones((len(src_pts), 1))])
         out = (self.affine_matrix @ src_homog.T).T
         
-        # L2: Polynomial
         y_coords = src_pts[:, 1]
         dx = np.polyval(self.poly_coeffs_x, y_coords)
         dy = np.polyval(self.poly_coeffs_y, y_coords)
         out += np.column_stack([dx, dy])
         
-        # L3: TPS
         if use_tps and self.tps_rbf_x is not None and self.tps_rbf_y is not None:
             if getattr(self, "tps_center", None) is not None and getattr(self, "tps_scale", None) is not None:
                 src_pts_norm = (src_pts - self.tps_center) / self.tps_scale
@@ -278,7 +261,6 @@ class HybridTransform:
             
         inv_model = HybridTransform()
         
-        # 1. Exact analytic inverse of the 2x3 affine matrix
         A = self.affine_matrix[:2, :2]
         t = self.affine_matrix[:2, 2]
         det = float(np.linalg.det(A))
@@ -289,19 +271,16 @@ class HybridTransform:
         t_inv = -A_inv @ t
         inv_model.affine_matrix = np.column_stack([A_inv, t_inv])
         
-        # 2. Reverse inliers & residual fitting if inliers exist
         if hasattr(self, "src_inliers") and self.src_inliers is not None and hasattr(self, "ref_inliers") and self.ref_inliers is not None:
             inv_model.src_inliers = self.ref_inliers.copy()
             inv_model.ref_inliers = self.src_inliers.copy()
             inv_model.poly_degree = getattr(self, "poly_degree", 2)
             inv_model.tps_smoothing = getattr(self, "tps_smoothing", 0.05)
             
-            # Layer 1 reverse prediction
             ref_homog = np.hstack([inv_model.src_inliers, np.ones((len(inv_model.src_inliers), 1))])
             pred_L1 = (inv_model.affine_matrix @ ref_homog.T).T
             res_L1 = inv_model.ref_inliers - pred_L1
             
-            # Layer 2: Reverse polynomial drift along ref Y coordinates
             y_coords = inv_model.src_inliers[:, 1]
             y_clusters = len(np.unique(np.round(y_coords / 150.0))) if len(y_coords) > 0 else 0
             eff_poly_degree = min(inv_model.poly_degree, max(0, y_clusters - 1))
@@ -318,7 +297,6 @@ class HybridTransform:
             pred_L2 = pred_L1 + np.column_stack([pred_dx, pred_dy])
             res_L2 = inv_model.ref_inliers - pred_L2
             
-            # Layer 3: Reverse TPS (only if forward TPS was activated)
             tps_active = getattr(self, "tps_activated", False) or (self.tps_rbf_x is not None)
             if tps_active and len(inv_model.src_inliers) >= 25:
                 inv_model.tps_center = np.mean(inv_model.src_inliers, axis=0)
@@ -478,7 +456,6 @@ class HybridTransform:
 
         return model
 
-# ─── API Function ────────────────────────────────────────────────────────────
 
 def compute_hybrid_transform(
     src_pts: np.ndarray,

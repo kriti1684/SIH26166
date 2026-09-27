@@ -1,6 +1,3 @@
-"""
-Core Configuration for Lunar Registration Backend.
-"""
 import os
 from pathlib import Path
 

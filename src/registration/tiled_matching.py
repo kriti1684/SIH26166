@@ -1,16 +1,3 @@
-"""
-src/registration/tiled_matching.py
-=======================================
-Uniform Spatial Grid Tiler with Entropy Enforcement (Task 3.1).
-
-This module partitions the overlapping BBox region into an N x M grid,
-applies the coarse global offset to pre-position the search windows, and
-extracts feature matches per-tile using structural maps. 
-Supports both in-memory arrays and GeoTIFF streaming reads (Architectural Pillar 1).
-It enforces uniform spatial distribution across the image grid, evaluated
-using Shannon Entropy H(S).
-"""
-
 import csv
 import math
 from pathlib import Path
@@ -37,13 +24,11 @@ except ImportError:
     except ImportError:
         LoFTRMatcher = None
 
-# ─── Constants ───────────────────────────────────────────────────────────────
 
 DEFAULT_GRID = (4, 4)
 MIN_POINTS_PER_TILE = 5
 LOWE_RATIO = 0.75
 
-# ─── Core Tiled Matching ────────────────────────────────────────────────────
 
 def get_tile_bounds(
     image_shape: Tuple[int, int],
@@ -83,7 +68,6 @@ def get_tile_bounds(
             y1 = min(h, y0 + tile_size)
             x1 = min(w, x0 + tile_size)
             
-            # Require minimum size (e.g., at least 200px)
             if y1 - y0 >= 200 and x1 - x0 >= 200:
                 core_x0 = x0 + margin if x0 > 0 else x0
                 core_x1 = x1 - margin if x1 < w else x1
@@ -136,7 +120,6 @@ def _match_loftr(s_img, r_img, loftr_matcher):
     h_r, w_r = r_u8.shape
     max_dim = 1024.0
     
-    # Common isotropic scale factor so crater feature sizes match 1:1 in LoFTR
     common_scale = min(1.0, max_dim / max(h_s, w_s, h_r, w_r))
     
     nw_s = max(8, int(round(w_s * common_scale / 8.0)) * 8)
@@ -188,7 +171,6 @@ def match_tile(
     if len(src_pts) < 4:
         return np.empty((0, 2), dtype=np.float32), np.empty((0, 2), dtype=np.float32)
 
-    # Local tile RANSAC to remove outliers
     _, mask = cv2.estimateAffinePartial2D(src_pts, ref_pts, method=cv2.RANSAC, ransacReprojThreshold=5.0)
     
     if mask is None:
@@ -199,7 +181,6 @@ def match_tile(
     return src_pts[mask].astype(np.float32), ref_pts[mask].astype(np.float32)
 
 
-# ─── Entropy Evaluation ──────────────────────────────────────────────────────
 
 def compute_spatial_entropy(
     pts: np.ndarray,
@@ -248,7 +229,6 @@ def compute_spatial_entropy(
     return float(entropy)
 
 
-# ─── Master Tiled Matching ───────────────────────────────────────────────────
 
 def _local_ncc_preposition(src_patch: np.ndarray, ref_patch_wide: np.ndarray, ds_factor: int = 4) -> Tuple[int, int]:
     """
@@ -260,14 +240,12 @@ def _local_ncc_preposition(src_patch: np.ndarray, ref_patch_wide: np.ndarray, ds
     s_ds = src_patch[::ds_factor, ::ds_factor].astype(np.float32)
     r_ds = ref_patch_wide[::ds_factor, ::ds_factor].astype(np.float32)
     
-    # zero mean
     s_ds -= s_ds.mean()
     r_ds -= r_ds.mean()
     
     if s_ds.std() < 1e-3 or r_ds.std() < 1e-3:
         return 0, 0
         
-    # Match template
     res = cv2.matchTemplate(r_ds, s_ds, cv2.TM_CCOEFF_NORMED)
     _, _, _, max_loc = cv2.minMaxLoc(res)
     
@@ -314,7 +292,7 @@ def draw_and_save_tile_matches(
         p0 = (int(round(x0)), int(round(y0)))
         p1 = (int(round(x1)) + W0 + margin, int(round(y1)))
         
-        color = (0, 255, 128) # bright green
+    color = (0, 255, 128)
         cv2.line(canvas, p0, p1, color, 2, lineType=cv2.LINE_AA)
         cv2.circle(canvas, p0, 4, (0, 0, 255), -1, lineType=cv2.LINE_AA)
         cv2.circle(canvas, p1, 4, (0, 0, 255), -1, lineType=cv2.LINE_AA)
@@ -419,7 +397,6 @@ def run_tiled_matching(
                 raise RuntimeError("LoFTRMatcher could not be loaded. PyTorch and LoFTR are required.")
                 
         for t_idx, t in enumerate(tiles):
-            # Source tile bounds
             x0, y0, x1, y1 = t["x0"], t["y0"], t["x1"], t["y1"]
             
             if is_src_file:
@@ -428,7 +405,6 @@ def run_tiled_matching(
             else:
                 raw_src = src_input[y0:y1, x0:x1]
             
-            # Predict reference center
             r_center = (y0 + y1) / 2.0
             pred_dx, pred_dy = predict_drift(r_center)
             
@@ -437,7 +413,6 @@ def run_tiled_matching(
             ref_x1 = int(round(x1 + pred_dx))
             ref_y1 = int(round(y1 + pred_dy))
             
-            # Add padding to reference search area for NCC pre-positioning
             search_x0 = max(0, ref_x0 - eff_padding)
             search_y0 = max(0, ref_y0 - eff_padding)
             search_x1 = min(w_ref, ref_x1 + eff_padding)
@@ -446,18 +421,15 @@ def run_tiled_matching(
             if search_x1 <= search_x0 or search_y1 <= search_y0:
                 continue
                 
-            # Pre-positioning: read reference window padded around predicted drift position
             if is_ref_file:
                 win_ref = Window(col_off=search_x0, row_off=search_y0, width=search_x1 - search_x0, height=search_y1 - search_y0)
                 raw_ref_wide = ref_ds.read(1, window=win_ref).astype(np.float32)
             else:
                 raw_ref_wide = ref_input[search_y0:search_y1, search_x0:search_x1]
 
-            # Check for empty / nodata patches
             if (raw_src > 0).mean() < 0.1 or (raw_ref_wide > 0).mean() < 0.1:
                 continue
 
-            # Extract and match using LoFTR on raw intensity / CLAHE patches
             t_src_pts, t_ref_pts = match_tile(
                 raw_src, raw_ref_wide, 
                 method=method, 
@@ -465,7 +437,6 @@ def run_tiled_matching(
             )
             
             if len(t_src_pts) > 0:
-                # Map local tile coordinates back to global image coordinates
                 g_src = t_src_pts.copy()
                 g_src[:, 0] += x0
                 g_src[:, 1] += y0
@@ -474,7 +445,6 @@ def run_tiled_matching(
                 g_ref[:, 0] += search_x0
                 g_ref[:, 1] += search_y0
                 
-                # Filter out points in the overlap boundaries (Core-vs-Border Margin Filtering)
                 core_x0, core_y0, core_x1, core_y1 = t["core_x0"], t["core_y0"], t["core_x1"], t["core_y1"]
                 valid_core = (g_src[:, 0] >= core_x0) & (g_src[:, 0] < core_x1) & \
                              (g_src[:, 1] >= core_y0) & (g_src[:, 1] < core_y1)
@@ -502,7 +472,6 @@ def run_tiled_matching(
         src_pts_arr = np.vstack(all_src_pts)
         ref_pts_arr = np.vstack(all_ref_pts)
         
-        # Global RANSAC cleanup to ensure overall consistency
         H, mask = cv2.findHomography(src_pts_arr, ref_pts_arr, cv2.RANSAC, 5.0)
         if mask is not None:
             mask = mask.ravel() == 1
@@ -511,7 +480,6 @@ def run_tiled_matching(
             
         total_matches = len(src_pts_arr)
         
-        # Evaluate distribution
         entropy = compute_spatial_entropy(src_pts_arr, (h_src, w_src), tile_size, step_size)
         cols = math.ceil(w_src / step_size)
         rows = math.ceil(h_src / step_size)
@@ -521,7 +489,6 @@ def run_tiled_matching(
         print(f"  Populated cells (>{MIN_POINTS_PER_TILE} pts): {populated_cells} / {cols*rows}")
         print(f"  Spatial Entropy: {entropy:.2f} / {max_entropy:.2f}")
         
-        # Write to CSV
         with open(output_csv, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(["src_x", "src_y", "ref_x", "ref_y"])

@@ -1,21 +1,3 @@
-"""
-src/preprocessing/ingest.py
-============================
-Pure-Python Ingestion Engine — 100% ISIS-free.
-
-Replaces:
-  - lronac2isis / lrowac2isis / isisimport (ISIS3 commands)
-  - process_lro() and process_ch2_optical() WSL-dependent functions in pipeline.py
-
-Supports:
-  - PDS4 format  : Chandrayaan-2 OHRC / TMC-2 / IIRS  (.xml + .img / .h5)
-  - PDS3 format  : LRO NAC / WAC                       (.IMG)
-  - GeoTIFF      : Any already map-projected image      (.tif / .tiff)
-
-Usage:
-  from src.preprocessing.ingest import load_raster, inspect_projection, extract_pds4_bounds
-"""
-
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
@@ -25,7 +7,6 @@ import rasterio
 from rasterio.crs import CRS
 
 
-# ── Namespaces used in ISRO PDS4 XML labels ─────────────────────────────────
 _NS = {
     'pds':  'http://pds.nasa.gov/pds4/pds/v1',
     'isda': 'https://isda.issdc.gov.in/pds4/isda/v1',
@@ -48,7 +29,6 @@ MOON_EQR_WKT = (
 MOON_CRS = CRS.from_wkt(MOON_EQR_WKT)
 
 
-# ── 1. Raster loader ─────────────────────────────────────────────────────────
 
 def load_raster(file_path: Path) -> Tuple[np.ndarray, rasterio.DatasetReader]:
     """
@@ -69,17 +49,14 @@ def load_raster(file_path: Path) -> Tuple[np.ndarray, rasterio.DatasetReader]:
     file_path = Path(file_path)
     suffix = file_path.suffix.lower()
 
-    # HDF5 (IIRS hyperspectral) ─────────────────────────────────────────────
     if suffix in ('.h5', '.hdf5'):
         return _load_iirs_h5(file_path)
 
-    # PDS4 XML / raw image binary loader ──────────────────────────────────
     xml_path = file_path if suffix == '.xml' else file_path.with_suffix('.xml')
     if not xml_path.exists():
         xml_path = file_path.with_suffix('.XML')
 
     if xml_path.exists():
-        # Try direct rasterio open first
         try:
             ds = rasterio.open(file_path)
             arr = ds.read(1)
@@ -87,13 +64,11 @@ def load_raster(file_path: Path) -> Tuple[np.ndarray, rasterio.DatasetReader]:
         except Exception:
             pass
 
-        # Native PDS4 XML + binary loader
         try:
             return _load_pds4_raw(xml_path, file_path if suffix != '.xml' else None)
         except Exception as e:
             print(f"[INGEST] Native PDS4 loader warning: {e}")
 
-    # PDS3 / standard raster loader via rasterio
     try:
         ds = rasterio.open(file_path)
         arr = ds.read(1)
@@ -110,7 +85,6 @@ def _load_pds4_raw(xml_path: Path, img_path: Optional[Path] = None) -> Tuple[np.
     root = tree.getroot()
     ns = {'pds': 'http://pds.nasa.gov/pds4/pds/v1'}
 
-    # If image path not provided, search in same folder
     if img_path is None or not img_path.exists():
         file_name_el = root.find('.//pds:File/pds:file_name', ns)
         if file_name_el is not None and (xml_path.parent / file_name_el.text.strip()).exists():
@@ -207,7 +181,6 @@ def _load_iirs_h5(h5_path: Path, target_band_idx: int = 1) -> Tuple[np.ndarray, 
     return arr, None
 
 
-# ── 2. Projection inspector ──────────────────────────────────────────────────
 
 def inspect_projection(file_path: Path) -> Dict[str, Any]:
     """
@@ -254,7 +227,6 @@ def inspect_projection(file_path: Path) -> Dict[str, Any]:
     return result
 
 
-# ── 3. PDS4 XML corner-coordinate extractor ──────────────────────────────────
 
 def extract_pds4_bounds(xml_path: Path) -> Optional[Dict[str, float]]:
     """
@@ -305,7 +277,6 @@ def extract_pds4_bounds(xml_path: Path) -> Optional[Dict[str, float]]:
         return None
 
 
-# ── 4. PDS4 metadata parser ──────────────────────────────────────────────────
 
 def extract_pds4_metadata(xml_path: Path) -> Dict[str, Any]:
     """
@@ -326,19 +297,16 @@ def extract_pds4_metadata(xml_path: Path) -> Dict[str, Any]:
 
     meta: Dict[str, Any] = {}
 
-    # Start time
     t = root.find('.//pds:Time_Coordinates/pds:start_date_time', _NS)
     if t is not None:
         meta['start_time'] = t.text.strip().rstrip('Z')
 
-    # Exposure duration
     e = root.find('.//isda:Product_Parameters/isda:line_exposure_duration', _NS)
     if e is not None:
         val  = float(e.text.strip())
         unit = e.attrib.get('unit', 'ms').lower()
         meta['exposure_s'] = val / {'ms': 1e3, 's': 1.0, 'microsec': 1e6}.get(unit, 1e3)
 
-    # Sensor / instrument ID
     instr = root.find('.//pds:Observing_System_Component/pds:name', _NS)
     if instr is not None:
         name = instr.text.upper()
@@ -357,7 +325,6 @@ def extract_pds4_metadata(xml_path: Path) -> Dict[str, Any]:
         else:
             meta['sensor'] = name
 
-    # Image dimensions
     lines_el   = root.find('.//pds:Array_2D_Image/pds:Axis_Array[pds:axis_name="Line"]/pds:elements', _NS)
     samples_el = root.find('.//pds:Array_2D_Image/pds:Axis_Array[pds:axis_name="Sample"]/pds:elements', _NS)
     if lines_el is not None:
@@ -368,7 +335,6 @@ def extract_pds4_metadata(xml_path: Path) -> Dict[str, Any]:
     return meta
 
 
-# ── 5. Convenience: write an un-georeferenced raster to GeoTIFF ──────────────
 
 def write_raw_tif(array: np.ndarray, out_path: Path, nodata: int = 0) -> None:
     """
@@ -395,7 +361,6 @@ def write_raw_tif(array: np.ndarray, out_path: Path, nodata: int = 0) -> None:
     print(f"[INGEST] Wrote raw (unprojected) TIF -> {out_path}")
 
 
-# ── 6. Automatic Georeferencing Helper ─────────────────────────────────────────
 
 _LRO_CORNER_CACHE: Dict[str, Dict[str, Any]] = {
     "M171992374CE": {
@@ -521,7 +486,6 @@ def deinterleave_wac(
     output_dir = Path(output_dir) if output_dir else file_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Parse PDS3 Header
     record_bytes = 704
     label_records = 10
     mode = "COLOR"
@@ -568,7 +532,6 @@ def deinterleave_wac(
 
     print(f"[INGEST] WAC EDR Header: Mode={mode}, {n_frames} frames, {lines} lines, {samples} samples (Offset={offset} bytes)")
 
-    # Band slice lookup for COLOR mode (78 lines/frame)
     band_slices = {
         1: slice(0, 4),
         2: slice(4, 8),
@@ -577,7 +540,6 @@ def deinterleave_wac(
         5: slice(36, 50),
         6: slice(50, 64),
         7: slice(64, 78),
-        # Wavelength aliases (nm)
         321: slice(0, 4),
         360: slice(4, 8),
         415: slice(8, 22),
@@ -590,7 +552,6 @@ def deinterleave_wac(
     target_slice = band_slices.get(band, slice(64, 78))  # Default: Band 7 @ 689nm Red
     frame_lines = 78 if mode == "COLOR" else (70 if mode == "VIS" else 14)
 
-    # 2. Read binary data with offset
     raw = np.fromfile(file_path, dtype=np.uint8, offset=offset)
     expected_size = n_frames * frame_lines * samples
     if len(raw) < expected_size:
@@ -598,11 +559,9 @@ def deinterleave_wac(
 
     data = raw[:expected_size].reshape(n_frames, frame_lines, samples)
 
-    # 3. Extract the requested band
     band_frames = data[:, target_slice, :].astype(np.float32)
     band_h = target_slice.stop - target_slice.start
 
-    # Task 1.1: 1D CCD Row Flat-Field Normalization
     row_means = np.mean(band_frames, axis=(0, 2))  # Mean for each row across all frames and samples
     overall_mean = np.mean(row_means)
     if overall_mean > 0:
@@ -610,18 +569,15 @@ def deinterleave_wac(
         p_norm[p_norm == 0] = 1.0  # Prevent division by zero
         band_frames = band_frames / p_norm.reshape(1, band_h, 1)
 
-    # Task 1.2: Inter-Framelet Cosine Seam Feathering
     if band_h >= 2 and n_frames > 1:
         last_rows = band_frames[:-1, -1, :].copy()
         first_rows = band_frames[1:, 0, :].copy()
         band_frames[:-1, -1, :] = 0.75 * last_rows + 0.25 * first_rows
         band_frames[1:, 0, :]   = 0.25 * last_rows + 0.75 * first_rows
 
-    # Stack along-track
     deinterleaved = band_frames.reshape(n_frames * band_h, samples)
     deinterleaved = np.clip(deinterleaved, 0, 255).astype(np.uint8)
 
-    # Task 1.3: Optical MTF Restoration Filter & Local Contrast Enhancement
     import cv2
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     i_clahe = clahe.apply(deinterleaved)

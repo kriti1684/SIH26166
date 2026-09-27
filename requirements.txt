@@ -14,7 +14,7 @@ rasterio>=1.3.0          # GeoTIFF, PDS3, PDS4 raster I/O
 GDAL>=3.4.0              # Warping, GCP attachment (Python bindings)
 h5py>=3.7.0              # IIRS HDF5 hyperspectral data reader
 
-# ── Backend (API & Task Queue) ───────────────────────────────
+# ── Backend (API & In-Process Pipeline) ─────────────────────
 fastapi>=0.100.0
 uvicorn>=0.23.0
 sqlalchemy>=2.0.0

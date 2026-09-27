@@ -17,7 +17,6 @@ else:
 class LoFTRMatcher:
     def __init__(self, pretrained="outdoor", match_threshold=0.05):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        # Load the pre-trained LoFTR model from Kornia
         self.matcher = LoFTR(pretrained=pretrained).to(self.device).eval()
         self.match_threshold = match_threshold
         print(f"[LoFTRMatcher] Initialized on device: {self.device} (pretrained: {pretrained})")
@@ -43,7 +42,6 @@ class LoFTRMatcher:
         if h0 < 16 or w0 < 16 or h1 < 16 or w1 < 16:
             return np.empty((0, 2), dtype=np.float32), np.empty((0, 2), dtype=np.float32), np.empty((0,), dtype=np.float32)
 
-        # Compute scaling factors
         scale0 = min(1.0, max_dim / float(max(h0, w0)))
         scale1 = min(1.0, max_dim / float(max(h1, w1)))
 
@@ -62,7 +60,6 @@ class LoFTRMatcher:
         else:
             im1_proc = image1
 
-        # Normalize to [0, 1] as required by Kornia's LoFTR
         if im0_proc.dtype == np.uint8:
             inp0 = torch.from_numpy(im0_proc).float() / 255.0
         else:
@@ -73,7 +70,6 @@ class LoFTRMatcher:
         else:
             inp1 = torch.from_numpy(im1_proc).float()
 
-        # LoFTR requires inputs to be [B, 1, H, W]
         inp0 = inp0.unsqueeze(0).unsqueeze(0).to(self.device)
         inp1 = inp1.unsqueeze(0).unsqueeze(0).to(self.device)
 
@@ -90,14 +86,12 @@ class LoFTRMatcher:
         mkpts1 = correspondences['keypoints1'].cpu().numpy()
         confidence = correspondences['confidence'].cpu().numpy()
 
-        # Rescale keypoints back to original tile coordinate space
         if len(mkpts0) > 0:
             mkpts0[:, 0] *= (w0 / float(w0_r))
             mkpts0[:, 1] *= (h0 / float(h0_r))
             mkpts1[:, 0] *= (w1 / float(w1_r))
             mkpts1[:, 1] *= (h1 / float(h1_r))
 
-        # Filter by threshold
         valid = confidence >= self.match_threshold
         
         return mkpts0[valid], mkpts1[valid], confidence[valid]

@@ -1,17 +1,3 @@
-"""
-src/preprocessing/scale_harmonizer.py
-========================================
-Multi-Modal Scale & Grid Harmonizer.
-Computes the minimal geographic bounding box overlap between any pair of lunar sensors
-(OHRC, TMC-2, IIRS, LRO NAC, WAC, SELENE TC), crops to that bounding box, and reprojects
-the source image onto the exact reference pixel grid and Ground Sampling Distance (GSD).
-
-Result:
-    - Both output rasters have identical (H, W) dimensions.
-    - GSD ratio is exactly 1.0 (sub-pixel aligned grid).
-    - 0% memory or compute wasted on non-overlapping territory.
-"""
-
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional
 import json
@@ -133,7 +119,6 @@ def crop_and_harmonize_overlap(
 
     target_crs_wkt = ref_crs.to_wkt() if hasattr(ref_crs, "to_wkt") else str(ref_crs)
 
-    # 1. Crop or Harmonize Reference to the exact overlap window
     print(f"[BBOX-HARMONIZE] Step 1: Harmonizing Reference to bounding box (Ratio: {ratio:.2f}x, is_wac={is_wac})...")
     if needs_intermediate_resampling:
         warp_ref_options = gdal.WarpOptions(
@@ -160,7 +145,6 @@ def crop_and_harmonize_overlap(
             target_crs = ref_crop_ds.crs.to_wkt()
             ref_bounds = [ref_crop_ds.bounds.left, ref_crop_ds.bounds.bottom, ref_crop_ds.bounds.right, ref_crop_ds.bounds.top]
 
-    # 2. Warp Source raster directly onto the cropped/harmonized Reference grid
     print(f"[BBOX-HARMONIZE] Step 2: Warping Source onto harmonized grid ({target_w}x{target_h}, GSD={gsd_harm:.2f}m)...")
     warp_bounds = ref_bounds if 'ref_bounds' in locals() else [l, b, r, t]
     warp_options = gdal.WarpOptions(
@@ -179,7 +163,6 @@ def crop_and_harmonize_overlap(
     )
     gdal.Warp(str(source_cammap_path), str(source_path), options=warp_options)
 
-    # 2b. If WAC with large resolution ratio, also generate a native-resolution source crop for Stage 4 export
     source_native_crop_path = None
     if is_wac and ratio >= 3.0:
         source_native_crop_path = output_dir / f"{prefix}_source_native_crop.tif"
@@ -202,11 +185,9 @@ def crop_and_harmonize_overlap(
         gdal.Warp(str(source_native_crop_path), str(source_path), options=native_warp_opts)
         print(f"  [BBOX-HARMONIZE] Generated native-resolution source crop: {source_native_crop_path.name} ({native_w}x{native_h}, GSD={gsd_src:.2f}m)")
 
-    # 3. Step 3: Automatic Physical Orientation Verification & Rectification
     print("[BBOX-HARMONIZE] Step 3: Verifying North-Up physical orientation alignment...")
     detected_orientation = verify_and_rectify_relative_orientation(source_cammap_path, ref_cropped_path)
 
-    # 4. Save comprehensive harmonization metadata
     metadata = {
         "source_orig": str(source_path),
         "ref_orig": str(ref_path),

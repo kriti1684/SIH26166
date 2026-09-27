@@ -1,12 +1,3 @@
-"""Adversarial Red Team Stress Test Suite.
-Evaluates the robustness of the Lunar Multi-Sensor Co-Registration Pipeline
-against deceptive correspondence traps:
-  1. RED-01: Twin Crater Trap (visually identical craters at disparate coordinates)
-  2. RED-02: Shadow Inversion Illusion (180 deg solar azimuth flip)
-  3. RED-03: Clustered Boulder Trap (degenerate single-feature collapse)
-  4. RED-04: Featureless Mare Noise (low-contrast noise correlation)
-"""
-
 import sys
 import json
 from pathlib import Path
@@ -14,7 +5,6 @@ from dataclasses import dataclass
 from typing import List
 import numpy as np
 
-# Ensure clean UTF-8 console output on Windows
 if sys.stdout.encoding != 'utf-8':
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -81,7 +71,6 @@ class AdversarialBenchmarkRunner:
         image_shape = (1600, 1600)
         total_area = float(1600 * 1600)
 
-        # Ring points along a 150px radius circle
         theta = np.linspace(0, 2 * np.pi, 24, endpoint=False)
         radius = 150.0
         pts_src = np.column_stack([800 + radius * np.cos(theta), 800 + radius * np.sin(theta)])
@@ -120,7 +109,7 @@ class AdversarialBenchmarkRunner:
         Sun from SW instead of NE creates inverted shadow casting, fooling gradient-based matchers.
         """
         src_az = 45.0
-        tgt_az = 225.0  # 180° flip
+        tgt_az = 225.0
         diff_az, illum_score = compute_illumination_consistency(
             np.zeros((100, 100), dtype=np.uint8),
             np.zeros((100, 100), dtype=np.uint8),
@@ -160,7 +149,6 @@ class AdversarialBenchmarkRunner:
         image_shape = (1600, 1600)
         total_area = float(1600 * 1600)
 
-        # 25 points packed into a 15x15 pixel region
         pts = np.array([[500 + (i % 5) * 3, 500 + (i // 5) * 3] for i in range(25)], dtype=np.float32)
 
         entropy = compute_spatial_entropy(pts, image_shape, grid_size=(4, 4))
@@ -227,7 +215,6 @@ class AdversarialBenchmarkRunner:
         )
 
     def _export_reports(self, results: List[AdversarialTestResult]):
-        # 1. Console Output
         for r in results:
             print(f"\n[{r.test_id}] {r.name}")
             print(f"  Attack Vector:    {r.attack_vector}")
@@ -237,7 +224,6 @@ class AdversarialBenchmarkRunner:
             print(f"  Spatial Entropy:  {r.spatial_entropy:.3f} | Coverage: {r.convex_hull_coverage_pct}%")
             print(f"  Reasons:          {', '.join(r.rejection_reasons[:2])}")
 
-        # 2. Markdown Report
         md_path = self.output_dir / "adversarial_report.md"
         with open(md_path, "w", encoding="utf-8") as f:
             f.write("# Adversarial Red Team Benchmark Report\n\n")
@@ -260,7 +246,6 @@ class AdversarialBenchmarkRunner:
                     f.write(f"  - `{reason}`\n")
                 f.write(f"- **Scientific Justification**: {r.explanation}\n\n")
 
-        # 3. JSON Export
         json_path = self.output_dir / "adversarial_benchmark.json"
         data = [r.__dict__ for r in results]
         with open(json_path, "w", encoding="utf-8") as f:

@@ -9,23 +9,15 @@ metrics, and downloads from the backend artifact manifest.
 
 Install the Python dependencies using the repository root's README section
 **12.1 Environment Setup** first, then activate that Python environment in the
-API and worker terminals.
+API terminal.
 
-Start Redis from the repository root:
-
-```powershell
-docker compose up -d redis
-```
-
-Run the API and worker in separate terminals from the repository root:
+Run the API from the repository root:
 
 ```powershell
 uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-```powershell
-celery -A backend.worker.celery_app worker --pool=solo --loglevel=info
-```
+The API starts each registration pipeline in-process after creating the job.
 
 In another terminal, start the frontend:
 

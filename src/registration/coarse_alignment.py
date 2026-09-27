@@ -1,31 +1,3 @@
-"""
-src/registration/coarse_alignment.py
-========================================
-High-Reliability Global Coarse Alignment Engine (Task 2.2).
-
-Provides two independent methods for estimating the global (dx, dy) offset between
-the source and reference BBox-harmonized rasters, without requiring ANY feature descriptors.
-Both are illumination-invariant.
-
-Method A: Bandpass FFT Phase Correlation
------------------------------------------
-Operates on structural maps (Phase Congruency or gradient), not raw pixels.
-Uses Hanning windowing to suppress edge-ringing artifacts.
-Accurate to approximately +/- 2 pixels.
-
-Method B: Crater Rim Consensus Voting
----------------------------------------
-Physically robust: extracts circular/elliptical crater rims (stable 3D features
-whose geometry is sun-angle invariant), then votes for the most consistent
-translation vector across all matched crater pairs.
-Proven in our research tests to find the correct offset (dx=2, dy=-54) with
-8 consensus votes where no other method succeeded.
-
-The module runs BOTH methods and cross-validates the results.
-If they agree within a tolerance, the higher-confidence estimate is used.
-If they disagree, a fallback hierarchy is invoked.
-"""
-
 import json
 import math
 from pathlib import Path
@@ -52,7 +24,6 @@ except ImportError:
 from scipy.stats import linregress
 
 
-# ─── Constants ───────────────────────────────────────────────────────────────
 
 # Hanning window size for FFT phase correlation (must be power of 2 for speed)
 FFT_PATCH_SIZE = 2048
@@ -74,7 +45,6 @@ MAX_OFFSET_SEARCH_PX = 1000
 METHOD_AGREEMENT_THRESH_PX = 30
 
 
-# ─── Method A: FFT Phase Correlation on Structural Maps ─────────────────────
 
 def phase_correlation_coarse(
     src_arr: np.ndarray,
@@ -96,7 +66,6 @@ def phase_correlation_coarse(
     """
     h, w = src_arr.shape
 
-    # Extract central patch
     r0 = max(0, (h - patch_size) // 2)
     c0 = max(0, (w - patch_size) // 2)
     r1 = min(h, r0 + patch_size)
@@ -108,19 +77,16 @@ def phase_correlation_coarse(
     src_patch = src_arr[r0:r1, c0:c1].astype(np.float32)
     ref_patch = ref_arr[r0:r1, c0:c1].astype(np.float32)
 
-    # Hanning window to suppress edge discontinuities
     hann = cv2.createHanningWindow((pw, ph), cv2.CV_32F)
     src_w = src_patch * hann
     ref_w = ref_patch * hann
 
-    # Phase correlation
     shift, response = cv2.phaseCorrelate(src_w, ref_w)
     dx, dy = float(shift[0]), float(shift[1])
 
     return dx, dy, float(response)
 
 
-# ─── Method B: Crater Rim Consensus Voting ───────────────────────────────────
 
 def crater_rim_consensus_voting(
     src_clahe: np.ndarray,
@@ -142,7 +108,6 @@ def crater_rim_consensus_voting(
         (dx, dy, peak_votes, vote_histogram)
         If no consensus found, returns (None, None, 0, histogram)
     """
-    # Detect craters via Hough Circles on CLAHE-enhanced images
     def detect_craters(img: np.ndarray) -> Optional[np.ndarray]:
         circles = cv2.HoughCircles(
             img,
@@ -167,7 +132,6 @@ def crater_rim_consensus_voting(
     if src_circles is None or ref_circles is None or n_src == 0 or n_ref == 0:
         return None, None, 0, np.array([])
 
-    # Build translation vote accumulator
     bins = np.arange(-max_offset, max_offset + bin_size, bin_size)
     n_bins = len(bins) - 1
     H = np.zeros((n_bins, n_bins), dtype=np.int32)
@@ -197,7 +161,6 @@ def crater_rim_consensus_voting(
         print("  [CRATER-VOTE] No radius-compatible pairs found in offset range.")
         return None, None, 0, H
 
-    # Find peak
     peak_idx = np.unravel_index(np.argmax(H), H.shape)
     peak_votes = int(H[peak_idx])
     peak_dx = float(bins[peak_idx[1]] + bin_size / 2.0)
@@ -207,7 +170,6 @@ def crater_rim_consensus_voting(
     return peak_dx, peak_dy, peak_votes, H
 
 
-# ─── Method C: Global Thumbnail LoFTR Coarse Alignment ───────────────────────
 
 def estimate_global_thumbnail_drift(
     src_path: Path,
@@ -311,7 +273,6 @@ def estimate_global_thumbnail_drift(
         return None
 
 
-# ─── Master Coarse Alignment ─────────────────────────────────────────────────
 
 def run_coarse_alignment(
     source_harmonized_path: Path,
@@ -404,12 +365,10 @@ def run_coarse_alignment(
             src_patch = src.read(1, window=win_src).astype(np.float32)
             ref_patch = ref.read(1, window=win_ref).astype(np.float32)
             
-            # Check for sufficient valid data
             if (src_patch > 0).mean() < 0.2 or (ref_patch > 0).mean() < 0.2:
                 print(f"  Strip {i+1}/{num_strips} at row {r_center}: Too much nodata, skipping.")
                 continue
 
-            # Compute structural maps
             src_struct = compute_structural_representation(src_patch, method=structural_method)
             ref_struct = compute_structural_representation(ref_patch, method=structural_method)
             
@@ -418,16 +377,13 @@ def run_coarse_alignment(
             src_clahe = src_struct["clahe"]
             ref_clahe = ref_struct["clahe"]
             
-            # Method A: FFT Phase Correlation
             dx_fft, dy_fft, fft_resp = phase_correlation_coarse(src_structural, ref_structural, patch_size)
             
-            # Method B: Crater Rim Consensus. FFT-only mode skips this work.
             dx_c, dy_c, c_votes = None, None, 0
             if coarse_method in {"auto", "crater"}:
                 eff_max_offset = min(1500, max(500, int(h * 0.08)))
                 dx_c, dy_c, c_votes, _ = crater_rim_consensus_voting(src_clahe, ref_clahe, max_offset=eff_max_offset)
             
-            # Selection
             final_dx, final_dy = dx_fft, dy_fft
             method_used = "fft"
             if coarse_method == "crater" and dx_c is not None and c_votes >= min_crater_votes:
@@ -442,7 +398,6 @@ def run_coarse_alignment(
                     final_dx, final_dy = dx_c, dy_c
                     method_used = "crater_voting (dominant)"
 
-            # Map strip-local offset back to global coordinate space
             abs_strip_dx = float(final_dx + (ref_c0 - c0))
             abs_strip_dy = float(final_dy + (ref_r0 - r0))
 

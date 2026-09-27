@@ -1,11 +1,3 @@
-"""
-src/preprocessing/bounding_overlap.py
-========================================
-Calculates the minimal geographic bounding box intersection of two lunar rasters.
-Extracts only the overlapping terrain, completely bypassing non-overlapping terrain
-and saving memory and compute time.
-"""
-
 from pathlib import Path
 from typing import Dict, Any, Optional
 import rasterio
@@ -42,13 +34,11 @@ def compute_geographic_overlap(
         ref_bounds = ref_ds.bounds
         src_bounds = src_ds.bounds
 
-        # Transform source bounds to reference CRS if needed
         if src_crs != ref_crs and src_crs is not None and ref_crs is not None:
             src_b_in_ref = transform_bounds(src_crs, ref_crs, *src_bounds)
         else:
             src_b_in_ref = (src_bounds.left, src_bounds.bottom, src_bounds.right, src_bounds.top)
 
-        # Intersection bounds in ref_crs
         inter_left = max(ref_bounds.left, src_b_in_ref[0])
         inter_bottom = max(ref_bounds.bottom, src_b_in_ref[1])
         inter_right = min(ref_bounds.right, src_b_in_ref[2])
@@ -73,7 +63,6 @@ def compute_geographic_overlap(
                 "error": f"Overlap area too small (ref: {ref_overlap_pct:.3f}%, src: {src_overlap_pct:.3f}%)."
             }
 
-        # Compute corresponding rasterio Window for ref_ds
         def bounds_to_window(ds, left, bottom, right, top, pad=0):
             row_top, col_left = ds.index(left, top)
             row_bottom, col_right = ds.index(right, bottom)
@@ -92,7 +81,6 @@ def compute_geographic_overlap(
 
         ref_win = bounds_to_window(ref_ds, inter_left, inter_bottom, inter_right, inter_top, pad=padding_pixels)
 
-        # For source window, transform inter bounds back to src_crs if needed
         if src_crs != ref_crs and src_crs is not None and ref_crs is not None:
             inter_b_in_src = transform_bounds(ref_crs, src_crs, inter_left, inter_bottom, inter_right, inter_top)
             src_win = bounds_to_window(src_ds, inter_b_in_src[0], inter_b_in_src[1], inter_b_in_src[2], inter_b_in_src[3], pad=padding_pixels)
@@ -131,7 +119,6 @@ def crop_window_to_geotiff(
     output_tif.parent.mkdir(parents=True, exist_ok=True)
 
     with rasterio.open(input_tif) as src:
-        # Read only the specified window
         if indexes is not None:
             data = src.read(indexes, window=window)
             count = 1
