@@ -133,6 +133,9 @@ data/storage/
 frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+frontend/.env
+artifacts/
+*.log
 !frontend/src/lib/
 !frontend/src/lib/**
 

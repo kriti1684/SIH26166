@@ -1,0 +1,17 @@
+# Auto-detect text files and normalize line endings to LF on checkout/commit
+* text=auto eol=lf
+
+# Force binary handling for image and geospatial data formats
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.tif binary
+*.tiff binary
+*.cub binary
+*.img binary
+*.bc binary
+*.bsp binary
+*.db binary
+*.sqlite binary
+*.pth binary
+*.pt binary

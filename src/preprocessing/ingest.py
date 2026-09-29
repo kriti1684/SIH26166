@@ -371,11 +371,11 @@ _LRO_CORNER_CACHE: Dict[str, Dict[str, Any]] = {
         "lines": 23712,   "samples": 704
     },
     "M117615312LE": {
-        "ul_lat": -69.87, "ul_lon": 329.56,
-        "ur_lat": -69.88, "ur_lon": 329.13,
-        "ll_lat": -70.76, "ll_lon": 329.41,
-        "lr_lat": -70.77, "lr_lon": 328.93,
-        "lines": 52224,   "samples": 5064
+        "ul_lat": -70.97, "ul_lon": 342.72,
+        "ur_lat": -70.97, "ur_lon": 343.00,
+        "ll_lat": -68.86, "ll_lon": 342.60,
+        "lr_lat": -68.85, "lr_lon": 342.86,
+        "lines": 52224,   "samples": 2532
     },
     "M1179837753RE": {
         "ul_lat": -19.75, "ul_lon": 41.54,

@@ -47,15 +47,21 @@ export function AppSidebar({
   return (
     <Sidebar aria-label="Registration workflow" className="sticky top-16 z-40 max-h-none w-full border-b border-sidebar-border shadow-sm lg:fixed lg:inset-y-16 lg:left-0 lg:h-[calc(100vh-4rem)] lg:max-h-none lg:w-64 lg:border-b-0 lg:border-r lg:shadow-none">
       <SidebarContent className="sidebar-content min-h-0 flex-1 overflow-hidden lg:overflow-y-auto">
-        <SidebarMenu aria-label="Pipeline stages" className="flex w-max min-w-full flex-row items-center gap-1 overflow-x-auto px-3 py-2 lg:w-full lg:flex-col lg:items-stretch lg:overflow-x-hidden lg:px-3 lg:py-2">
+        <SidebarMenu aria-label="Pipeline stages" className="flex w-max min-w-full flex-row items-center gap-1.5 overflow-x-auto px-3 py-2 lg:w-full lg:flex-col lg:items-stretch lg:overflow-x-hidden lg:px-3 lg:py-3">
+          <div className="sidebar-group-header px-2 pt-1 pb-1 text-[10px] font-mono font-bold tracking-widest text-muted-foreground/70 uppercase hidden lg:block">
+            Setup
+          </div>
           <SidebarMenuButton className="w-48 shrink-0 lg:w-full" isActive={activeTab === 'input'} onClick={() => onTabChange('input')}>
             <span className="sidebar-num">00</span>
             <span className="sidebar-labels"><strong>Input products</strong></span>
             <Badge variant={productsReady ? 'success' : 'muted'} className="sidebar-badge">{productsReady ? 'Ready' : 'Setup'}</Badge>
           </SidebarMenuButton>
 
-          <Separator className="sidebar-divider mx-1 my-0 h-auto w-px self-stretch lg:mx-2 lg:my-1 lg:h-px lg:w-auto" />
+          <Separator className="sidebar-divider mx-1 my-0 h-auto w-px self-stretch lg:mx-2 lg:my-1.5 lg:h-px lg:w-auto" />
 
+          <div className="sidebar-group-header px-2 pt-1 pb-1 text-[10px] font-mono font-bold tracking-widest text-muted-foreground/70 uppercase hidden lg:block">
+            Execution Pipeline
+          </div>
           {stages.map((stage) => {
             const state = getStageState(stage.id)
             return (
@@ -74,8 +80,11 @@ export function AppSidebar({
             )
           })}
 
-          <Separator className="sidebar-divider mx-1 my-0 h-auto w-px self-stretch lg:mx-2 lg:my-1 lg:h-px lg:w-auto" />
+          <Separator className="sidebar-divider mx-1 my-0 h-auto w-px self-stretch lg:mx-2 lg:my-1.5 lg:h-px lg:w-auto" />
 
+          <div className="sidebar-group-header px-2 pt-1 pb-1 text-[10px] font-mono font-bold tracking-widest text-muted-foreground/70 uppercase hidden lg:block">
+            Verification & Data
+          </div>
           <SidebarMenuButton isActive={activeTab === 'output'} onClick={() => onTabChange('output')} className={`w-48 shrink-0 state-${outputState} lg:w-full`}>
             <span className={`sidebar-num stage-num ${outputState}`}><StageMark state={outputState} index="06" /></span>
             <span className="sidebar-labels"><strong>Output &amp; results</strong></span>

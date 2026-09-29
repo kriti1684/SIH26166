@@ -75,6 +75,7 @@ class JobOutputLinks(BaseModel):
 
 class JobDetailResponse(BaseModel):
     id: str
+    project_name: Optional[str] = None
     sensor_src: str
     sensor_ref: str
     source_filename: str

@@ -15,7 +15,7 @@ for _d in (UPLOADS_DIR, OUTPUTS_DIR, PREVIEWS_DIR):
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{STORAGE_DIR / 'lunar_reg.db'}")
 MAX_JOB_UPLOAD_BYTES = int(os.getenv("MAX_JOB_UPLOAD_BYTES", str(20 * 1024**3)))
 
-PROJECT_NAME = "ChandaShakti"
+PROJECT_NAME = "ChandraShakti"
 VERSION      = "2.0.0"
 API_V1_PREFIX = "/api/v1"
 

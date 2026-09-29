@@ -120,16 +120,23 @@ def _match_loftr(s_img, r_img, loftr_matcher):
     h_r, w_r = r_u8.shape
     max_dim = 1024.0
     
-    common_scale = min(1.0, max_dim / max(h_s, w_s, h_r, w_r))
+    # Scale each tile independently to ensure small source tiles are not over-decimated
+    # when matched against wide search-padded reference tiles.
+    scale_s = min(1.0, max_dim / max(h_s, w_s))
+    scale_r = min(1.0, max_dim / max(h_r, w_r))
     
-    nw_s = max(8, int(round(w_s * common_scale / 8.0)) * 8)
-    nh_s = max(8, int(round(h_s * common_scale / 8.0)) * 8)
+    # Preserve crater details: do not decimate source tile below 640px if it started >= 800px
+    if max(h_s, w_s) >= 800 and max(h_s, w_s) * scale_s < 640:
+        scale_s = min(1.0, 640.0 / max(h_s, w_s))
+        
+    nw_s = max(8, int(round(w_s * scale_s / 8.0)) * 8)
+    nh_s = max(8, int(round(h_s * scale_s / 8.0)) * 8)
     s_u8_proc = cv2.resize(s_u8, (nw_s, nh_s), interpolation=cv2.INTER_AREA) if (nw_s != w_s or nh_s != h_s) else s_u8
     scale_s_x = w_s / nw_s
     scale_s_y = h_s / nh_s
 
-    nw_r = max(8, int(round(w_r * common_scale / 8.0)) * 8)
-    nh_r = max(8, int(round(h_r * common_scale / 8.0)) * 8)
+    nw_r = max(8, int(round(w_r * scale_r / 8.0)) * 8)
+    nh_r = max(8, int(round(h_r * scale_r / 8.0)) * 8)
     r_u8_proc = cv2.resize(r_u8, (nw_r, nh_r), interpolation=cv2.INTER_AREA) if (nw_r != w_r or nh_r != h_r) else r_u8
     scale_r_x = w_r / nw_r
     scale_r_y = h_r / nh_r
@@ -288,11 +295,10 @@ def draw_and_save_tile_matches(
     canvas[:H0, :W0] = im0_bgr
     canvas[:H1, W0 + margin:W0 + margin + W1] = im1_bgr
 
+    color = (0, 255, 128)
     for i, ((x0, y0), (x1, y1)) in enumerate(zip(kpts0, kpts1)):
         p0 = (int(round(x0)), int(round(y0)))
         p1 = (int(round(x1)) + W0 + margin, int(round(y1)))
-        
-    color = (0, 255, 128)
         cv2.line(canvas, p0, p1, color, 2, lineType=cv2.LINE_AA)
         cv2.circle(canvas, p0, 4, (0, 0, 255), -1, lineType=cv2.LINE_AA)
         cv2.circle(canvas, p1, 4, (0, 0, 255), -1, lineType=cv2.LINE_AA)
@@ -377,15 +383,30 @@ def run_tiled_matching(
 
         tiles = get_tile_bounds((h_src, w_src), eff_tile, eff_step)
         
-        # Adaptive search padding based on coarse alignment confidence:
-        # If coarse confidence is very low (< 0.05), expand window to 700px to absorb
-        # extreme pointing uncertainty common in long OHRC swaths.
-        # If moderately low (< 0.15), use 400-500px.
+        # Adaptive search padding based on coarse alignment confidence AND drift magnitude.
+        # Rule 1: If confidence is very low (coarse alignment failed), expand aggressively.
+        # Rule 2: If drift is large but confidence is moderate, also expand: the linear drift
+        #         model has residual error proportional to drift magnitude, so 200px of padding
+        #         is insufficient when the true drift is 800+ pixels (e.g. test_4: 1100px drift).
         coarse_conf = float(coarse_result.get("confidence", 1.0)) if coarse_result else 1.0
+        drift_magnitude = math.hypot(
+            abs(dx_intercept) if coarse_result else 0.0,
+            abs(dy_intercept) if coarse_result else 0.0
+        )
+        swath_h = max(h_src, h_ref)
         if coarse_conf < 0.05:
-            eff_padding = min(max(search_padding, 700), 800)
+            eff_padding = min(max(search_padding, 700), 1200)
+            print(f"  [TILED-MATCH] Low coarse confidence ({coarse_conf:.3f}) -> expanded padding to {eff_padding}px")
         elif coarse_conf < 0.15:
-            eff_padding = min(max(search_padding, 400), 500)
+            eff_padding = min(max(search_padding, 500), 1000)
+            print(f"  [TILED-MATCH] Moderate-low confidence ({coarse_conf:.3f}) -> expanded padding to {eff_padding}px")
+        elif drift_magnitude > 800 or swath_h > 8000:
+            # For large drifts or tall pushbroom swaths (e.g. OHRC 27k px),
+            # along-track differential drift easily exceeds 400px.
+            # Scale padding to 4% of swath height (capped between 600px and 1200px)
+            height_pad = int(0.04 * swath_h)
+            eff_padding = min(1200, max(search_padding, 600, height_pad))
+            print(f"  [TILED-MATCH] Tall swath ({swath_h}px) / large drift ({drift_magnitude:.0f}px) -> expanded padding to {eff_padding}px")
         else:
             eff_padding = search_padding
         
@@ -478,23 +499,73 @@ def run_tiled_matching(
         src_pts_arr = np.vstack(all_src_pts)
         ref_pts_arr = np.vstack(all_ref_pts)
         
-        # FIX: Global affine consistency cleanup instead of homography.
-        # Using findHomography (8-DOF) on satellite imagery in the same CRS is wrong —
-        # there is no projective distortion between reprojected rasters. Homography
-        # spuriously rejects valid affine-consistent inliers as "homography outliers",
-        # cutting the match pool exactly when you need density for TPS.
-        # Using estimateAffine2D with 3.0px threshold is physically correct and tighter.
+        # Step 1: Drift-consistency blunder rejection
+        # On lunar terrain, repetitive crater patterns in low-contrast tiles can cause
+        # catastrophic false matches (deviating 500-1500px from physical trajectory).
+        # If coarse alignment provides a drift model or shift, discard gross blunders first.
+        n_raw = len(src_pts_arr)
+        swath_h = max(h_src, h_ref)
+        if coarse_conf > 0.05 and (dx_intercept != 0.0 or dy_intercept != 0.0 or dy_slope != 0.0):
+            pred_dx_all = dx_slope * src_pts_arr[:, 1] + dx_intercept
+            pred_dy_all = dy_slope * src_pts_arr[:, 1] + dy_intercept
+            dev_x = np.abs((ref_pts_arr[:, 0] - src_pts_arr[:, 0]) - pred_dx_all)
+            dev_y = np.abs((ref_pts_arr[:, 1] - src_pts_arr[:, 1]) - pred_dy_all)
+            max_drift_dev = max(180.0, min(400.0, 0.015 * swath_h))
+            drift_mask = (dev_x <= max_drift_dev) & (dev_y <= max_drift_dev)
+            n_drift_valid = int(np.sum(drift_mask))
+            if n_drift_valid >= 15:
+                n_dropped = n_raw - n_drift_valid
+                if n_dropped > 0:
+                    print(f"  [TILED-MATCH] Drift filter: removed {n_dropped} gross blunders (>{max_drift_dev:.0f}px from drift model), {n_drift_valid} candidates remain")
+                src_pts_arr = src_pts_arr[drift_mask]
+                ref_pts_arr = ref_pts_arr[drift_mask]
+                n_raw = len(src_pts_arr)
+
+        # Step 2: Curvature-aware Global Affine Consistency Cleanup & Span Guard.
+        # Step 2: Global Affine Consistency Cleanup & Span Guard.
+        # Use an affine threshold (5.0 - 7.5 px) that eliminates false tile matches/crater blunders
+        # while retaining points across the entire scene.
+        span_y_before = float(np.ptp(src_pts_arr[:, 1])) if len(src_pts_arr) > 1 else 0.0
+        if swath_h > 5000:
+            affine_thresh = max(5.0, min(8.0, 0.00035 * swath_h))
+        else:
+            affine_thresh = 3.5 if n_raw >= 30 else 5.5
+
+        print(f"  [TILED-MATCH] Global affine cleanup: {n_raw} candidates, threshold={affine_thresh:.1f}px")
         A_global, mask = cv2.estimateAffine2D(
             src_pts_arr, ref_pts_arr, cv2.RANSAC,
-            ransacReprojThreshold=3.0,
-            maxIters=2000,
+            ransacReprojThreshold=affine_thresh,
+            maxIters=3000,
             confidence=0.999
         )
+
         if mask is not None:
-            mask = mask.ravel() == 1
-            src_pts_arr = src_pts_arr[mask]
-            ref_pts_arr = ref_pts_arr[mask]
-            
+            mask_bool = mask.ravel() == 1
+            if np.sum(mask_bool) >= 15:
+                span_y_after = float(np.ptp(src_pts_arr[mask_bool, 1])) if np.sum(mask_bool) > 1 else 0.0
+                if span_y_before > 0.3 * swath_h and span_y_after < 0.50 * span_y_before:
+                    print(f"  [TILED-MATCH] Relaxing threshold to {min(12.0, affine_thresh * 1.5):.1f}px to preserve swath coverage...")
+                    A_rel, mask_rel = cv2.estimateAffine2D(
+                        src_pts_arr, ref_pts_arr, cv2.RANSAC,
+                        ransacReprojThreshold=min(12.0, affine_thresh * 1.5),
+                        maxIters=4000,
+                        confidence=0.999
+                    )
+                    if mask_rel is not None and np.sum(mask_rel.ravel() == 1) > np.sum(mask_bool):
+                        mask_bool = mask_rel.ravel() == 1
+
+                src_pts_arr = src_pts_arr[mask_bool]
+                ref_pts_arr = ref_pts_arr[mask_bool]
+        elif n_raw >= 15:
+            A_rel, mask_rel = cv2.estimateAffine2D(
+                src_pts_arr, ref_pts_arr, cv2.RANSAC,
+                ransacReprojThreshold=min(12.0, affine_thresh * 1.5),
+                maxIters=4000
+            )
+            if mask_rel is not None and np.sum(mask_rel) >= 15:
+                src_pts_arr = src_pts_arr[mask_rel.ravel() == 1]
+                ref_pts_arr = ref_pts_arr[mask_rel.ravel() == 1]
+
         total_matches = len(src_pts_arr)
         
         entropy = compute_spatial_entropy(src_pts_arr, (h_src, w_src), tile_size, step_size)

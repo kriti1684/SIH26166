@@ -1,4 +1,4 @@
-# 🛰️ ChandaShakti (चन्द्रशक्ति)
+# 🛰️ ChandraShakti (चन्द्रशक्ति)
 ### Next-Gen Universal Sub-Pixel Lunar Image Co-Registration Engine
 **ISRO Smart India Hackathon (SIH 2024) — Problem Statement SIH26166**  
 *Multi-modal, Sun Angle, and Scale Invariant Planetary Image Correspondence across Chandrayaan-2 (OHRC, TMC-2, IIRS) and LRO (NAC, WAC, SELENE-TC)*
@@ -11,6 +11,9 @@
 [![Sub-Pixel Accuracy](https://img.shields.io/badge/Sub--Pixel%20Accuracy-%3C%200.25%20px-00C853?style=for-the-badge)](#-comprehensive-scientific-benchmarks)
 [![100% ISIS-Free](https://img.shields.io/badge/Architecture-100%25%20ISIS--Free-blue?style=for-the-badge)](#-100-isis-free-pure-python-architecture)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
+> 📖 **Official Technical Documentation Suite**:  
+> [**ISRO Problem Statement**](docs/PROBLEM_STATEMENT.md) • [**Architecture & Mathematics**](docs/ARCHITECTURE.md) • [**CLI Quickstart Guide**](docs/CLI_USAGE.md) • [**REST API & Webhook Telemetry**](docs/API_REFERENCE.md) • [**5-Pillar Verification & Benchmarks**](docs/VERIFICATION_AND_BENCHMARKS.md)
 
 ---
 
@@ -29,8 +32,8 @@ High-precision co-registration of orbital imagery over the lunar surface is a cr
 5. **Polar Coordinate Flips:**  
    Ascending (South-to-North) and descending (North-to-South) orbital tracks cause $180^\circ$ coordinate inversions that confuse generic GIS bounding box matchers.
 
-### 🌟 The ChandaShakti Solution
-**ChandaShakti (चन्द्रशक्ति)** is a complete, production-grade, 100% ISIS-free planetary image co-registration engine built in pure Python and C++ extensions (GDAL, SPICE, PyTorch/LoFTR, OpenCV, SciPy, Rasterio). It operates via **streaming windowed I/O** to guarantee memory consumption stays $< 50\text{ MB}$ even on multi-gigapixel rasters, while delivering **verified sub-pixel accuracy ($\mathbf{< 0.25\text{ px}}$ RMSE)**, dense tie-point networks, and multi-pillar scientific verification.
+### 🌟 The ChandraShakti Solution
+**ChandraShakti (चन्द्रशक्ति)** is a complete, production-grade, 100% ISIS-free planetary image co-registration engine built in pure Python and C++ extensions (GDAL, SPICE, PyTorch/LoFTR, OpenCV, SciPy, Rasterio). It operates via **streaming windowed I/O** to guarantee memory consumption stays $< 50\text{ MB}$ even on multi-gigapixel rasters, while delivering **verified sub-pixel accuracy ($\mathbf{< 0.25\text{ px}}$ RMSE)**, dense tie-point networks, and multi-pillar scientific verification.
 
 ---
 
@@ -234,7 +237,7 @@ Every registered dataset undergoes automated multi-pillar validation to prevent 
 
 ## 📊 4. Comprehensive Scientific Benchmarks
 
-ChandaShakti has been verified across diverse lunar orbital datasets covering extreme illumination, high resolution disparities, and polar geography:
+ChandraShakti has been verified across diverse lunar orbital datasets covering extreme illumination, high resolution disparities, and polar geography:
 
 | Metric | Test 5 (TMC-2 vs. WAC) | Test IIRS (IIRS vs. WAC) | Test 8 (OHRC vs. NAC) | Full Swath `run_v2` (OHRC vs. NAC) | Target Standard |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -260,12 +263,12 @@ ChandaShakti has been verified across diverse lunar orbital datasets covering ex
 - **Zero Directional Bias:** $\text{Median } \Delta x = 0.0044\text{ px}, \ \text{Median } \Delta y = 0.0074\text{ px}$.
 - **Full TPS Elastic Relief:** 222 robust spatial inliers activated Layer 3 Thin Plate Splines across $59.4\%$ swath coverage.
 
-### 4.2 Baseline Architecture Benchmark: SIFT vs. SuperPoint vs. ChandaShakti
+### 4.2 Baseline Architecture Benchmark: SIFT vs. SuperPoint vs. ChandraShakti
 Comparison against classical and deep detector-based methods on challenging lunar orbital swaths:
 * **Dataset:** Chandrayaan-2 OHRC vs. LRO NAC (South Polar Strip, $6,830 \times 21,134\text{ px}$, $144.3\text{ Megapixels}$)
 * **Evaluation Condition:** Large along-track displacement ($> 1,900\text{ px}$), low-sun illumination, and deep polar shadowing.
 
-| Method / Metric | Traditional SIFT + RANSAC | SuperPoint + SuperGlue | **ChandaShakti (LoFTR + Sub-Pixel ECC)** |
+| Method / Metric | Traditional SIFT + RANSAC | SuperPoint + SuperGlue | **ChandraShakti (LoFTR + Sub-Pixel ECC)** |
 | :--- | :---: | :---: | :---: |
 | **Candidate Matches** | 18 | 84 | **19,702** |
 | **Active Inliers (Post-QC)** | 4 | 22 | **794 (Refined) / 540 (Active TPS)** |
@@ -281,7 +284,7 @@ Demonstrating push-frame restoration and dual-resolution native warping on extre
 * **Dataset:** Chandrayaan-2 TMC-2 ($5.03\text{ m/px}$) vs. LRO WAC Push-Frame EDR ($90.75\text{ m/px}$, Band 7 $689\text{ nm}$)
 * **Challenge:** Extreme $18.04\times$ resolution gap, push-frame 14-line interleave, wide-angle lens diffraction blur, and low-contrast maria regolith.
 
-| Method / Metric | Standard Processing (Upsampled WAC) | **ChandaShakti Two-Scale Architecture** | Improvement / Impact |
+| Method / Metric | Standard Processing (Upsampled WAC) | **ChandraShakti Two-Scale Architecture** | Improvement / Impact |
 | :--- | :---: | :---: | :---: |
 | **WAC Preprocessing** | Raw Barcode / 4.25x Upsample Blur | **1D Normalized + Seam Feathered + MTF Sharpened** | Pristine single-band $689\text{ nm}$ |
 | **Coarse Alignment** | Fails ($dx=-392, dy=-382$) | **Consensus Peak ($dx=-30, dy=-398$)** | $100\%$ reliable across $185\text{ km}$ window |
@@ -336,11 +339,11 @@ python run_pipeline.py \
 
 ## 👥 6. Target Audience & Stakeholder Ecosystem
 
-ChandaShakti is engineered to serve a broad spectrum of planetary science, space agency, commercial, and defense stakeholders:
+ChandraShakti is engineered to serve a broad spectrum of planetary science, space agency, commercial, and defense stakeholders:
 
 ```
                                ┌────────────────────────────────────────────────────────┐
-                               │             CHANDASHAKTI USER ECOSYSTEM                │
+                               │             CHANDRASHAKTI USER ECOSYSTEM                │
                                └──────────────────────────┬─────────────────────────────┘
                                                           │
          ┌───────────────────────────────┬────────────────┴───────────────┬───────────────────────────────┐
@@ -382,7 +385,7 @@ ChandaShakti is engineered to serve a broad spectrum of planetary science, space
 
 ## 💼 7. Quantifiable Impact & Strategic Benefits Matrix
 
-| Strategic Dimension | Legacy Industry Standard (USGS ISIS3 / Manual GCPs) | ChandaShakti Autonomous Pipeline | Quantifiable Impact & Advantage |
+| Strategic Dimension | Legacy Industry Standard (USGS ISIS3 / Manual GCPs) | ChandraShakti Autonomous Pipeline | Quantifiable Impact & Advantage |
 | :--- | :--- | :--- | :--- |
 | **Registration Precision** | $2.0 - 5.0\text{ px}$ (subject to operator subjectivity & SIFT blunders) | **$< 0.25 - 0.50\text{ px}$ Verified RMSE** | **$6\times - 10\times$ accuracy surge**; achieves true sub-pixel scientific overlay. |
 | **Processing Throughput** | $4 - 6\text{ hours}$ per swath pair (manual tie-point picking & iterative warping) | **$< 2.5\text{ minutes}$ end-to-end** | **$120\times$ acceleration**; enables automated batch processing of entire orbital archives. |
@@ -399,7 +402,7 @@ ChandaShakti is engineered to serve a broad spectrum of planetary science, space
 
 ```
   ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
-  │                           CHANDASHAKTI TECHNOLOGICAL ROADMAP                                │
+  │                           CHANDRASHAKTI TECHNOLOGICAL ROADMAP                                │
   └─────────────────────────────────────────────────────────────────────────────────────────────┘
           Phase 1 (Current)                Phase 2 (Near-Term)             Phase 3 (Long-Term)
    ┌─────────────────────────────┐   ┌─────────────────────────────┐   ┌─────────────────────────────┐
@@ -429,20 +432,20 @@ ChandaShakti is engineered to serve a broad spectrum of planetary science, space
 * **Shukrayaan-1 SAR-to-Infrared Integration:** Apply Phase Congruency and multi-frequency cross-power spectrums to register Synthetic Aperture Radar (SAR) imagery with thermal/infrared surface observations through the dense, opaque Venusian atmosphere.
 
 ### 5. Multi-Illumination Photoclinometry & 3D Digital Elevation Models (DEM)
-* **Shape-from-Shading (SfS) Integration:** Since ChandaShakti accurately aligns images acquired under widely varying solar illumination angles, use these registered multi-temporal passes as direct inputs for multi-image photometric stereo, generating ultra-dense Digital Elevation Models (DEM) with **centimeter-scale vertical resolution**.
+* **Shape-from-Shading (SfS) Integration:** Since ChandraShakti accurately aligns images acquired under widely varying solar illumination angles, use these registered multi-temporal passes as direct inputs for multi-image photometric stereo, generating ultra-dense Digital Elevation Models (DEM) with **centimeter-scale vertical resolution**.
 
 ### 6. Cloud-Native Planetary Data Infrastructure (ISRO ISSDC Integration)
-* **Cloud-Optimized GeoTIFF (COG) & STAC Pipeline:** Package ChandaShakti as a distributed, serverless worker on Kubernetes that can stream imagery directly from ISRO's Pradan / ISSDC cloud buckets, allowing planetary scientists worldwide to request on-demand, sub-pixel registered mosaics directly in their web browsers.
+* **Cloud-Optimized GeoTIFF (COG) & STAC Pipeline:** Package ChandraShakti as a distributed, serverless worker on Kubernetes that can stream imagery directly from ISRO's Pradan / ISSDC cloud buckets, allowing planetary scientists worldwide to request on-demand, sub-pixel registered mosaics directly in their web browsers.
 
 ---
 
 ## ⚖️ 9. Feasibility & Viability Analysis
 
-The deployment potential of ChandaShakti is evaluated across three core engineering and economic pillars: **Technical Feasibility**, **Operational Feasibility**, and **Economic Viability**.
+The deployment potential of ChandraShakti is evaluated across three core engineering and economic pillars: **Technical Feasibility**, **Operational Feasibility**, and **Economic Viability**.
 
 ```
                            ┌────────────────────────────────────────────────────────┐
-                           │          CHANDASHAKTI FEASIBILITY FRAMEWORK            │
+                           │          CHANDRASHAKTI FEASIBILITY FRAMEWORK            │
                            └──────────────────────────┬─────────────────────────────┘
                                                       │
          ┌────────────────────────────────────────────┼────────────────────────────────────────────┐
@@ -461,7 +464,7 @@ The deployment potential of ChandaShakti is evaluated across three core engineer
 
 ### 9.1 Technical Feasibility (Can it be built, scaled, and sustained?)
 * **Mathematical & Algorithmic Soundness:**
-  - **Elimination of Point Feature Detectors:** Traditional corner/blob detectors fail on featureless lunar regolith. ChandaShakti replaces them with dense transformer matching (LoFTR) and Phase Congruency, ensuring dense tie points even across extreme shadow inversions ($> 80^\circ$ solar azimuth divergence).
+  - **Elimination of Point Feature Detectors:** Traditional corner/blob detectors fail on featureless lunar regolith. ChandraShakti replaces them with dense transformer matching (LoFTR) and Phase Congruency, ensuring dense tie points even across extreme shadow inversions ($> 80^\circ$ solar azimuth divergence).
   - **3-Layer Pushbroom Physics:** Rather than relying on naive 2D homographies that fail on pushbroom scanners, the engine separates deformation into Physical Affine, Longitudinal Scanline Polynomial Drift, and Regularized Thin Plate Splines (TPS).
   - **Sub-Pixel Numerical Convergence:** Continuous Gauss-Newton ECC optimization refines coordinate vectors with analytical image gradients, guaranteeing $< 0.10\text{ px}$ numerical precision.
 * **Hardware & Resource Viability:**
@@ -477,7 +480,7 @@ The deployment potential of ChandaShakti is evaluated across three core engineer
 ### 9.2 Operational Feasibility (How easily can it integrate into existing ground systems?)
 * **100% Technological Sovereignty (Zero USGS ISIS3 Dependency):**
   - Legacy pipelines depend on the USGS Integrated Software for Imagers and Spectrometers (ISIS3), which is Linux-only, requires complex Anaconda environments, and demands hundreds of gigabytes of external cartography dependencies.
-  - ChandaShakti is built on a **pure Python/C++ stack** (PyTorch, GDAL, Rasterio, SpiceyPy, OpenCV, SciPy). It runs natively on **Windows 10/11, Linux, and macOS** with zero external legacy binaries.
+  - ChandraShakti is built on a **pure Python/C++ stack** (PyTorch, GDAL, Rasterio, SpiceyPy, OpenCV, SciPy). It runs natively on **Windows 10/11, Linux, and macOS** with zero external legacy binaries.
 * **Native Planetary Format Support:**
   - Directly ingests planetary data standards: **PDS4 XML/IMG, PDS3 LBL/IMG, GeoTIFF, and NAIF SPICE kernels**. No pre-conversion to proprietary formats is required.
 * **Hands-Off Automated Workflow:**
@@ -490,20 +493,20 @@ The deployment potential of ChandaShakti is evaluated across three core engineer
 ### 9.3 Economic Feasibility & Return on Investment (ROI)
 * **Drastic Labor & Time Cost Reduction:**
   - **Manual Baseline:** A senior photogrammetrist requires **4 to 6 hours** per orbital swath pair to manually identify tie-points, adjust GCPs, and verify seams (~$50–$100/hr = **$300–$600 per pair** in specialist labor).
-  - **ChandaShakti Pipeline:** Fully autonomous execution in **$< 2.5\text{ minutes}$** on cloud/local compute.
-  - **Annual Impact:** For an archive of 1,000 orbital strips, traditional processing costs **~$300,000 to $500,000** in manual labor; ChandaShakti processes the same archive for **~$35 in cloud compute costs** (**$> 99.2\%$ cost reduction**).
+  - **ChandraShakti Pipeline:** Fully autonomous execution in **$< 2.5\text{ minutes}$** on cloud/local compute.
+  - **Annual Impact:** For an archive of 1,000 orbital strips, traditional processing costs **~$300,000 to $500,000** in manual labor; ChandraShakti processes the same archive for **~$35 in cloud compute costs** (**$> 99.2\%$ cost reduction**).
 * **Zero Commercial Licensing Fees (CapEx / OpEx):**
   - Eliminates the need for commercial closed-source photogrammetry software suites (e.g., PCI Geomatics, Agisoft Metashape, or ENVI), which cost **$5,000 to $15,000 per user seat/year**.
 * **Minimal Infrastructure Investment:**
   - Does not require high-performance supercomputers. Runs seamlessly on an affordable $800 desktop workstation or standard on-demand cloud GPU instances ($0.50/hr on AWS EC2 g4dn / GCP T4).
 * **High-Stakes Mission Risk Mitigation:**
-  - Planetary lander missions (such as Chandrayaan-4, LUPEX, or NASA CLPS commercial landers) cost **$90M to $150M+**. A landing failure caused by uncorrected topographic hazard displacement is catastrophic. By delivering verified sub-pixel landing maps, ChandaShakti provides immense mission insurance value.
+  - Planetary lander missions (such as Chandrayaan-4, LUPEX, or NASA CLPS commercial landers) cost **$90M to $150M+**. A landing failure caused by uncorrected topographic hazard displacement is catastrophic. By delivering verified sub-pixel landing maps, ChandraShakti provides immense mission insurance value.
 
 ---
 
 ### 9.4 Feasibility Summary Matrix
 
-| Evaluation Dimension | Metric / Criterion | Legacy Industry Standard | ChandaShakti Implementation | Feasibility Verdict |
+| Evaluation Dimension | Metric / Criterion | Legacy Industry Standard | ChandraShakti Implementation | Feasibility Verdict |
 | :--- | :--- | :--- | :--- | :---: |
 | **Technical** | Feature Detection Robustness | SIFT/ORB (Fails on low-contrast regolith) | Dense LoFTR Transformer + Phase Congruency | **FEASIBLE (High)** |
 | **Technical** | Pushbroom Orbital Modeling | Rigid 2D Affine / Homography | 3-Layer Physics (Affine + Drift + TPS) | **FEASIBLE (High)** |
@@ -543,7 +546,7 @@ Problem Statement **SIH26166** is widely recognized as one of the most mathemati
   - Standard gradient descriptors (SIFT, SURF, ORB) compute local directional gradients: $\nabla I = (\partial I / \partial x, \partial I / \partial y)$.
   - When the sun angle reverses, gradient directions invert ($\nabla I \to -\nabla I$). SIFT feature vectors become nearly orthogonal or completely anti-correlated, yielding zero matchable keypoints.
   - A sunlit crater rim in Pass 1 appears as a pitch-black abyss in Pass 2; standard cross-correlation (NCC) yields false negative peaks.
-* **ChandaShakti Solution:** Transforms images into illumination-invariant **Log-Gabor Phase Congruency** and normalized **Scharr Gradient Energy Fields**, isolating geometric boundary topologies independent of shadow polarity.
+* **ChandraShakti Solution:** Transforms images into illumination-invariant **Log-Gabor Phase Congruency** and normalized **Scharr Gradient Energy Fields**, isolating geometric boundary topologies independent of shadow polarity.
 
 ---
 
@@ -554,7 +557,7 @@ Problem Statement **SIH26166** is widely recognized as one of the most mathemati
 * **Why Classical CV Fails:**
   - A $20\text{ m}$ crater with distinct boulder textures in TMC-2 or OHRC is blurred into a single indistinct $2 \times 2\text{ pixel}$ Gaussian smudge in WAC.
   - Standard Gaussian octave scale-space pyramids in SIFT/ORB cannot bridge a continuous $18\times$ jump without completely smoothing away high-frequency spatial discriminators.
-* **ChandaShakti Solution:** Deploys a **Two-Scale Cam2Map Scale Harmonizer** with push-frame 1D modulation restoration, MTF deconvolution sharpening, and detector-free cross-attention transformers.
+* **ChandraShakti Solution:** Deploys a **Two-Scale Cam2Map Scale Harmonizer** with push-frame 1D modulation restoration, MTF deconvolution sharpening, and detector-free cross-attention transformers.
 
 ---
 
@@ -567,7 +570,7 @@ Problem Statement **SIH26166** is widely recognized as one of the most mathemati
 * **Why Classical CV Fails:**
   - Standard photogrammetry models image transformation using a planar 2D Homography ($3 \times 3$ matrix $\mathbf{H}$). Homography strictly assumes either a planar surface or a static, single optical projection center.
   - Pushbroom sensors have a **continuously moving optical center for every single row**! Fitting an affine or homography leaves uncorrected residual errors of $2.0 - 15.0\text{ pixels}$.
-* **ChandaShakti Solution:** Employs an **Orthogonal 3-Layer Physics Transform**: Layer 1 Physical Affine + Layer 2 Along-Track Longitudinal Polynomial Drift ($\Delta y(\text{row}) = \sum a_k y^k$) + Layer 3 Coordinate-Normalized Thin Plate Splines ($\lambda = 0.05$).
+* **ChandraShakti Solution:** Employs an **Orthogonal 3-Layer Physics Transform**: Layer 1 Physical Affine + Layer 2 Along-Track Longitudinal Polynomial Drift ($\Delta y(\text{row}) = \sum a_k y^k$) + Layer 3 Coordinate-Normalized Thin Plate Splines ($\lambda = 0.05$).
 
 ---
 
@@ -576,7 +579,7 @@ Problem Statement **SIH26166** is widely recognized as one of the most mathemati
 * **Why Deep Learning Fails:**
   - Modern deep-learning matchers (SuperGlue, LoFTR) rely on self- and cross-attention matrices that scale quadratically with sequence length: $\mathcal{O}(N^2)$. Feeding a $21,000 \times 6,800$ image directly into GPU memory causes immediate Out-Of-Memory (OOM) crashes even on 80GB NVIDIA A100 clusters.
   - Naive Python coordinate grid warping (`scipy.ndimage.map_coordinates`) allocates contiguous coordinate arrays of $> 2\text{ GB}$ per layer, crashing typical RAM.
-* **ChandaShakti Solution:**
+* **ChandraShakti Solution:**
   - **Tier 1 Global Thumbnail LoFTR:** Locks macro-shifts (up to $5,000\text{ px}$) on a $1024 \times 1024$ representation in $< 2\text{ seconds}$ ($< 1.4\text{ GB}$ VRAM).
   - **Adaptive Tiled Grid ($4 \times 4$ or $N \times M$):** Matches localized $1024\text{ px}$ patches with $400\text{ px}$ boundary padding.
   - **Streaming Windowed Bicubic GeoTIFF Warper:** Processes strips in 1024-line increments, capping peak RAM strictly below **$< 50\text{ MB}$**.
@@ -590,7 +593,7 @@ Problem Statement **SIH26166** is widely recognized as one of the most mathemati
   - An area of high visible albedo (bright impact ejecta) can turn completely dark in SWIR Band 24 ($2.2\ \mu\text{m}$) due to molecular absorption troughs.
 * **Why Classical CV Fails:**
   - Intensity-based correlation (NCC, Mutual Information, MSE) assumes consistent brightness ordering ($I_1 \propto I_2$). When spectral absorption inverts the contrast hierarchy, standard cross-correlation completely diverges.
-* **ChandaShakti Solution:** Discards raw radiometric intensity in favor of structural and geometric boundary invariance (Phase Congruency and multi-scale morphological gradients).
+* **ChandraShakti Solution:** Discards raw radiometric intensity in favor of structural and geometric boundary invariance (Phase Congruency and multi-scale morphological gradients).
 
 ---
 
@@ -599,7 +602,7 @@ Problem Statement **SIH26166** is widely recognized as one of the most mathemati
 * **Why Classical CV Fails:**
   - Feature detectors (Harris, FAST, SIFT DoG) rely on high-frequency corners. In vast regolith expanses, they detect $0$ to $5$ keypoints across thousands of square kilometers.
   - Terrestrial deep-learning models trained on urban datasets (MegaDepth, ScanNet with buildings, cars, furniture) fail to generalize to smooth extraterrestrial dust plains.
-* **ChandaShakti Solution:** Dense detector-free transformer matching that extracts relational features directly across all receptive fields, coupled with local adaptive histogram equalization (CLAHE) to amplify faint textural variations.
+* **ChandraShakti Solution:** Dense detector-free transformer matching that extracts relational features directly across all receptive fields, coupled with local adaptive histogram equalization (CLAHE) to amplify faint textural variations.
 
 ---
 
@@ -609,69 +612,75 @@ Problem Statement **SIH26166** is widely recognized as one of the most mathemati
   - Linux-only architecture with highly fragile Anaconda environment dependencies.
   - Requires hundreds of gigabytes of external NAIF SPICE kernels and static camera model definitions.
   - Cannot run natively on Windows workstations, edge spaceflight hardware, or lightweight containerized cloud microservices.
-* **ChandaShakti Solution:** **100% Pure Python/C++ Architecture** with native PDS4/PDS3 parsers and SpiceyPy wrappers. Runs natively on Windows 10/11, Linux, and macOS without a single line of ISIS3 code.
+* **ChandraShakti Solution:** **100% Pure Python/C++ Architecture** with native PDS4/PDS3 parsers and SpiceyPy wrappers. Runs natively on Windows 10/11, Linux, and macOS without a single line of ISIS3 code.
 
 ---
 
-## 📁 11. Repository Structure
+## 📁 11. Professional Repository Structure
 
 ```text
-SIH1/
-├── backend/                            # FastAPI micro-service for web dashboard
-│   ├── config.py                       # Backend settings (ChandaShakti branding)
-│   ├── database.py                     # SQLite / PostgreSQL task persistence
-│   ├── main.py                         # API router & health endpoints
-│   ├── models.py                       # Database schema
-│   ├── routes.py                       # RESTful registration endpoints
-│   ├── schemas.py                      # Pydantic request / response schemas
-│   └── worker.py                       # In-process registration pipeline runner
+ChandraShakti/
+├── backend/                            # FastAPI micro-service & asynchronous worker
+│   ├── config.py                       # App settings, paths, and environment configuration
+│   ├── database.py                     # SQLite / PostgreSQL persistence engine
+│   ├── main.py                         # FastAPI application entrypoint & health routes
+│   ├── models.py                       # SQLAlchemy database schema (Projects, Stages, Artifacts)
+│   ├── routes.py                       # RESTful API endpoints for pipeline execution & telemetry
+│   ├── schemas.py                      # Pydantic request / response validation schemas
+│   └── worker.py                       # Non-blocking in-process registration runner
 │
-├── configs/
-│   └── default_config.json             # Hyperparameters & RANSAC tolerance settings
+├── configs/                            # Algorithmic configurations & presets
+│   └── default_config.json             # Hyperparameters, RANSAC thresholds & warping defaults
 │
-├── data/
-│   └── spice/                          # NAIF/ISRO SPICE kernels (LSK, PCK, BSP, BC, TI, TF)
+├── data/                               # Planetary data & ephemerides management
+│   ├── spice/                          # NAIF / ISRO SPICE kernels (LSK, PCK, BSP, BC, TI, TF)
+│   ├── storage/                        # (Git-ignored) Workspace run products, uploads & SQLite DB
+│   └── README.md                       # Planetary datasets and SPICE kernel layout guide
 │
 ├── diagnostics/                        # Global adversarial benchmarks and evaluations
+│   ├── adversarial_benchmark.json      # Quantitative multi-perturbation stress metrics
+│   └── adversarial_report.md           # Stress-testing analysis & robustness report
 │
-├── projects/                           # Output directory for pipeline test runs
-│   ├── test_5_tmc_wac/                 # Verified Test 5 run deliverables (0.448 px RMSE)
-│   ├── test_7_ohrc_nac/                # Test 7 run deliverables (Equatorial 84.5° solar divergence)
-│   └── test_8_ohrc_nac/                # Verified Test 8 run deliverables (0.249 px RMSE, 222 inliers)
-│       ├── registered_subpixel.tif     # Sub-pixel registered GeoTIFF (<0.25 px accuracy)
-│       ├── candidate_matches.csv       # 498 consistent LoFTR tie-points
-│       ├── subpixel_tie_points.csv     # 498 ECC sub-pixel converged points
-│       ├── tie_points_inliers.csv      # 222 active inlier tie-points
-│       ├── hybrid_transform_model.json # 3-Layer Physics Transform (Affine + Drift + TPS)
-│       └── diagnostics/
-│           ├── registration_verification.png # Multi-panel scientific dashboard
-│           ├── difference_heatmap.png        # JET false-color difference map
-│           ├── overview_false_color.png      # Optical anaglyph composite
-│           └── overview_side_by_side.png     # Side-by-side alignment swipe
+├── docs/                               # Comprehensive Technical & Evaluation Documentation
+│   ├── PROBLEM_STATEMENT.md            # Official ISRO SIH 26166 problem statement & deliverables
+│   ├── ARCHITECTURE.md                 # 5-phase pipeline architecture & 3-layer hybrid math
+│   ├── CLI_USAGE.md                    # CLI quickstart guide with multi-sensor command examples
+│   ├── API_REFERENCE.md                # FastAPI REST API documentation, schemas & states
+│   └── VERIFICATION_AND_BENCHMARKS.md  # 5-pillar scientific verification & empirical benchmarks
 │
-├── scripts/
-│   ├── bridge_to_dashboard.py          # WebSocket/REST dashboard bridge
-│   ├── check_kernel_dates.py           # SPICE coverage inspector
-│   ├── download_may2021_ck.py          # Automated NAIF attitude downloader
-│   └── run_adversarial_benchmark.py    # Stress-testing & synthetic perturbation runner
+├── frontend/                           # React + Vite + Tailwind CSS Web Dashboard
+│   ├── src/                            # Dashboard UI components, API client, types & state
+│   ├── public/                         # Dashboard logos, favicons & static assets
+│   ├── package.json                    # Node.js dependencies & build scripts
+│   ├── vite.config.ts                  # Vite build & proxy configuration
+│   └── README.md                       # Frontend development & build guide
 │
-├── src/                                # Core Engine Source Code
-│   ├── preprocessing/
-│   │   ├── band_selector.py            # IIRS SWIR hyperslab streaming band selection
+├── scripts/                            # Planetary utilities, benchmark runners & tools
+│   ├── bridge_to_dashboard.py          # Legacy run to database migration bridge
+│   ├── check_kernel_dates.py           # SPICE coverage & epoch inspector
+│   ├── download_may2021_ck.py          # Automated NAIF attitude kernel fetcher
+│   ├── export_visualizations.py        # Diagnostic preview and heatmap exporter
+│   ├── generate_workflow_diagram.mjs   # Architecture workflow visualization renderer
+│   └── run_adversarial_benchmark.py    # Synthetic perturbation & illumination stress runner
+│
+├── src/                                # Core Planetary Co-Registration Engine
+│   ├── preprocessing/                  # Phase 1: Pure-Python Ingestion & Scale Harmonization
+│   │   ├── band_selector.py            # IIRS SWIR hyperslab streaming band selection (<50MB RAM)
 │   │   ├── bounding_overlap.py         # Windowed geographic bounding box calculator
 │   │   ├── ingest.py                   # 100% ISIS-free PDS4/PDS3/GeoTIFF raster ingest
 │   │   ├── scale_harmonizer.py         # Pixel-aligned Cam2Map scale harmonizer & auto-orientation
-│   │   ├── spice_georeference.py       # SPICE kernel ray-tracing & GCP projection engine
-│   │   └── structural.py               # Phase congruency & multi-scale gradient fields
+│   │   ├── spice_georeference.py       # NAIF SPICE ray-tracing & GCP projection engine
+│   │   └── structural.py               # Log-Gabor phase congruency & multi-scale gradient fields
 │   │
-│   └── registration/
-│       ├── coarse_alignment.py         # Dual-method coarse alignment (FFT + Crater Voting)
-│       ├── loftr_matcher.py            # Transformer detector-free feature matcher
-│       ├── tiled_matching.py           # Uniform spatial grid & Shannon entropy filtering
-│       ├── subpixel_ecc.py             # Continuous Gauss-Newton ECC sub-pixel refinement
-│       ├── hybrid_transform.py         # 3-Layer pushbroom physics transform with safety firewall
-│       ├── warp.py                     # Streaming windowed bicubic GeoTIFF warper (<50MB RAM)
-│       └── verifier.py                 # Multi-pillar scientific verification & QC engine
+│   └── registration/                   # Phases 2-5: Alignment, Matching, Warping & Verification
+│       ├── coarse_alignment.py         # Phase 2: Dual-method coarse alignment (FFT + Crater Voting)
+│       ├── loftr_matcher.py            # Phase 3: Transformer detector-free feature matcher
+│       ├── tiled_matching.py           # Phase 3: Uniform spatial grid & Shannon entropy filtering
+│       ├── subpixel_ecc.py             # Phase 3: Continuous Gauss-Newton ECC sub-pixel refinement
+│       ├── hybrid_transform.py         # Phase 4: 3-Layer pushbroom physics transform with safety firewall
+│       ├── warp.py                     # Phase 4: Streaming windowed bicubic GeoTIFF warper (<50MB RAM)
+│       ├── verifier.py                 # Phase 5: Multi-pillar scientific verification & QC engine
+│       └── web_previews.py             # Web preview quicklook generator
 │
 ├── tests/                              # Automated Pytest Suite (18 Unit Tests)
 │   ├── test_phase1_harmonization.py    # Phase 1 unit tests (PDS, SPICE, WAC deinterleaving)
@@ -679,10 +688,13 @@ SIH1/
 │   ├── test_phase3_matching.py         # Phase 3 unit tests (Tiling, LoFTR, Sub-Pixel ECC)
 │   └── test_phase4_warp_verify.py      # Phase 4 & 5 unit tests (Hybrid Transform, Warper, Metrics)
 │
-├── main.py                             # Root CLI entrypoint
-├── run_pipeline.py                     # Production CLI execution script
+├── .gitattributes                      # Line ending & binary format normalization
+├── .gitignore                          # Clean repository ignoring large rasters & caches
+├── LICENSE                             # MIT Open Source License
+├── main.py                             # Unified CLI entrypoint
+├── README.md                           # Master project documentation
 ├── requirements.txt                    # Python dependency manifest
-└── .gitignore                          # Clean repository rules
+└── run_pipeline.py                     # Production CLI execution script & worker engine
 ```
 
 ---
@@ -694,8 +706,8 @@ Create an isolated environment with GDAL, PyTorch CUDA, and SpiceyPy:
 
 ```bash
 # 1. Create and activate environment
-conda create -n chandashakti python=3.11 -y
-conda activate chandashakti
+conda create -n chandrashakti python=3.11 -y
+conda activate chandrashakti
 
 # 2. Install GDAL and Rasterio from conda-forge
 conda install -c conda-forge gdal rasterio spiceypy -y

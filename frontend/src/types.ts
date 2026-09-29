@@ -25,6 +25,7 @@ export interface JobOutputLinks {
 
 export interface RegistrationJob {
   id: string
+  project_name?: string | null
   sensor_src: string
   sensor_ref: string
   source_filename: string
@@ -71,6 +72,7 @@ export interface HealthStatus {
 }
 
 export interface RegistrationConfig {
+  projectName?: string
   source: File | null
   reference: File | null
   sourceSidecars: File[]

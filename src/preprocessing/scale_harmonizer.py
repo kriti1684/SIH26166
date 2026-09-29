@@ -119,6 +119,25 @@ def crop_and_harmonize_overlap(
 
     target_crs_wkt = ref_crs.to_wkt() if hasattr(ref_crs, "to_wkt") else str(ref_crs)
 
+    # P7: Select resampling algorithm based on scale ratio to avoid aliasing.
+    # Bilinear uses a 2x2 kernel — at 14x downsampling (TMC 5m -> WAC 72m) this
+    # aliases severely and destroys spatial structure that LoFTR needs.
+    # GRA_Average: anti-aliased box average, best for large downscaling ratios.
+    # GRA_Lanczos: Lanczos windowed sinc, optimal for moderate downscaling.
+    # GRA_Bilinear: only appropriate for upscaling or near-1:1 resampling.
+    if resample_alg == gdal.GRA_Bilinear:  # Only auto-upgrade if caller didn't override
+        if ratio >= 4.0:
+            effective_resample_alg = gdal.GRA_Average
+            print(f"[BBOX-HARMONIZE] Auto-selecting GRA_Average (ratio={ratio:.1f}x >= 4.0 — anti-aliased box average)")
+        elif ratio >= 2.0:
+            effective_resample_alg = gdal.GRA_Lanczos
+            print(f"[BBOX-HARMONIZE] Auto-selecting GRA_Lanczos (ratio={ratio:.1f}x >= 2.0 — windowed sinc)")
+        else:
+            effective_resample_alg = resample_alg
+    else:
+        effective_resample_alg = resample_alg  # Respect explicit caller override
+
+    # 1. Crop or Harmonize Reference to the exact overlap window
     print(f"[BBOX-HARMONIZE] Step 1: Harmonizing Reference to bounding box (Ratio: {ratio:.2f}x, is_wac={is_wac})...")
     if needs_intermediate_resampling:
         warp_ref_options = gdal.WarpOptions(
@@ -128,7 +147,7 @@ def crop_and_harmonize_overlap(
             dstSRS=target_crs_wkt,
             width=target_w,
             height=target_h,
-            resampleAlg=resample_alg,
+            resampleAlg=effective_resample_alg,
             srcNodata=0,
             dstNodata=0,
             multithread=True,
@@ -154,7 +173,7 @@ def crop_and_harmonize_overlap(
         dstSRS=target_crs,
         width=target_w,
         height=target_h,
-        resampleAlg=resample_alg,
+        resampleAlg=effective_resample_alg,
         srcNodata=0,
         dstNodata=0,
         multithread=True,

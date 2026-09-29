@@ -1,6 +1,7 @@
 import hashlib
 import mimetypes
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Literal
@@ -90,6 +91,7 @@ async def create_registration_job(
     grid_rows: int = Form(4, ge=1, le=16),
     grid_cols: int = Form(4, ge=1, le=16),
     export_native: bool = Form(False),
+    project_name: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
@@ -156,6 +158,7 @@ async def create_registration_job(
 
     job = RegistrationJob(
         id=job_id,
+        project_name=project_name.strip() if project_name and project_name.strip() else Path(names["source"][0]).stem,
         sensor_src=sensor_src.value,
         sensor_ref=sensor_ref.value,
         source_filename=names["source"][0],
@@ -216,6 +219,17 @@ def list_jobs(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
 @router.get("/jobs/{job_id}", response_model=JobDetailResponse)
 def get_job(job_id: str, db: Session = Depends(get_db)):
     return _to_job_detail(_job_or_404(db, job_id))
+
+
+@router.delete("/jobs/{job_id}")
+def delete_job(job_id: str, db: Session = Depends(get_db)):
+    job = _job_or_404(db, job_id)
+    shutil.rmtree(OUTPUTS_DIR / job_id, ignore_errors=True)
+    shutil.rmtree(UPLOADS_DIR / job_id, ignore_errors=True)
+    shutil.rmtree(PREVIEWS_DIR / job_id, ignore_errors=True)
+    db.delete(job)
+    db.commit()
+    return {"status": "DELETED", "job_id": job_id}
 
 
 @router.get("/jobs/{job_id}/status", response_model=JobStatusResponse)
@@ -396,6 +410,7 @@ def _to_job_detail(job: RegistrationJob) -> dict:
     metrics_value = metrics or None
     return {
         "id": job.id,
+        "project_name": getattr(job, "project_name", None) or Path(job.source_filename).stem,
         "sensor_src": job.sensor_src,
         "sensor_ref": job.sensor_ref,
         "source_filename": job.source_filename,

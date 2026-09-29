@@ -9,7 +9,7 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
   ({ className, asChild = false, ...props }, ref) => {
     const Component = asChild ? Slot : 'div'
-    return <Component ref={ref} className={cn('rounded-xl border border-border bg-card text-card-foreground shadow-sm', className)} {...props} />
+    return <Component ref={ref} className={cn('rounded-2xl border border-border/80 bg-card/90 text-card-foreground shadow-[0_2px_12px_-2px_rgba(0,0,0,0.25)] backdrop-blur-md', className)} {...props} />
   },
 )
 Card.displayName = 'Card'

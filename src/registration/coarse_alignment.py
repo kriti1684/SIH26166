@@ -178,15 +178,13 @@ def estimate_global_thumbnail_drift(
     src_path: Path,
     ref_path: Path,
     max_dim: int = 1024,
-    min_inliers: int = 12
+    min_inliers: int = 5
 ) -> Optional[Dict[str, Any]]:
     """
     Fast global coarse alignment on downsampled full-swath thumbnails using LoFTR.
     Absorbs massive along-track and across-track pointing errors (e.g. 500 - 5000 px) in ~3 seconds.
 
-    min_inliers: Minimum LoFTR inliers needed. Lowered from 20 to 12 because cross-sensor
-                 pairs (OHRC vs NAC, TMC vs WAC) produce fewer matches per unit area due
-                 to radiometric and resolution differences.
+    min_inliers: Minimum geometric RANSAC inliers needed (5 is statistically robust against random chance).
     Returns:
         dict with dx, dy, confidence, inliers_count, and linear drift model if successful,
         or None if LoFTR is unavailable or finds insufficient matches.
@@ -217,7 +215,7 @@ def estimate_global_thumbnail_drift(
 
             matcher = LoFTRMatcher()
             pts_s, pts_r, confs = matcher.match(s_cl, r_cl)
-            if len(pts_s) < min_inliers:
+            if len(pts_s) < 8:
                 return None
 
             full_sx = pts_s[:, 0] * (s.width / new_w_s)
@@ -228,38 +226,61 @@ def estimate_global_thumbnail_drift(
             dxs = full_rx - full_sx
             dys = full_ry - full_sy
 
-            med_dx = float(np.median(dxs))
-            med_dy = float(np.median(dys))
-            mad_dx = float(np.median(np.abs(dxs - med_dx)))
-            mad_dy = float(np.median(np.abs(dys - med_dy)))
+            # Geometric 2D RANSAC in thumbnail coordinate space (eliminates repetitive crater misassociations)
+            inliers = None
+            if len(pts_s) >= 4:
+                try:
+                    _, mask_aff = cv2.estimateAffine2D(pts_s, pts_r, method=cv2.RANSAC, ransacReprojThreshold=5.0)
+                    if mask_aff is not None and np.sum(mask_aff) >= 4:
+                        inliers = (mask_aff.ravel() == 1)
+                except Exception:
+                    inliers = None
 
-            inliers = (np.abs(dxs - med_dx) <= max(3.0 * mad_dx, 50.0)) & \
-                      (np.abs(dys - med_dy) <= max(3.0 * mad_dy, 50.0))
+            if inliers is None or np.sum(inliers) < 4:
+                try:
+                    _, mask_part = cv2.estimateAffinePartial2D(pts_s, pts_r, method=cv2.RANSAC, ransacReprojThreshold=5.0)
+                    if mask_part is not None and np.sum(mask_part) >= 4:
+                        inliers = (mask_part.ravel() == 1)
+                except Exception:
+                    pass
+
+            if inliers is None or np.sum(inliers) < 4:
+                # Fallback to robust MAD
+                med_dx = float(np.median(dxs))
+                med_dy = float(np.median(dys))
+                mad_dx = float(np.median(np.abs(dxs - med_dx)))
+                mad_dy = float(np.median(np.abs(dys - med_dy)))
+                inliers = (np.abs(dxs - med_dx) <= max(3.0 * mad_dx, 50.0)) & \
+                          (np.abs(dys - med_dy) <= max(3.0 * mad_dy, 50.0))
+
             inl_count = int(np.sum(inliers))
             if inl_count < min_inliers:
                 return None
 
-            if inl_count >= 10:
+            med_dx = float(np.median(dxs[inliers]))
+            med_dy = float(np.median(dys[inliers]))
+
+            # Linear drift regression on verified geometric inliers
+            y_span = float(np.max(full_sy[inliers]) - np.min(full_sy[inliers])) if inl_count > 1 else 0.0
+            span_ratio = y_span / max(1.0, float(s.height))
+
+            if inl_count >= 5 and span_ratio >= 0.15:
                 dy_slope, dy_int, _, _, _ = linregress(full_sy[inliers], dys[inliers])
                 dx_slope, dx_int, _, _, _ = linregress(full_sy[inliers], dxs[inliers])
-                if abs(dy_slope) > 0.15:
+                if abs(dy_slope) > 0.20 or np.isnan(dy_slope):
                     dy_slope, dy_int = 0.0, med_dy
-                if abs(dx_slope) > 0.15:
+                if abs(dx_slope) > 0.20 or np.isnan(dx_slope):
                     dx_slope, dx_int = 0.0, med_dx
             else:
                 dy_slope, dy_int = 0.0, med_dy
                 dx_slope, dx_int = 0.0, med_dx
 
             mean_conf = float(np.mean(confs[inliers]))
-            # Confidence cutoff lowered from 0.25 to 0.15:
-            # Cross-sensor LoFTR matches have inherently lower confidence due to
-            # radiometric differences. The MAD-based inlier filter already
-            # ensures geometric robustness, so a lower confidence cutoff is safe.
             if mean_conf < 0.15:
                 print(f"  [COARSE-ALIGN] Thumbnail LoFTR low confidence ({mean_conf:.2f} < 0.15), falling back to strip profiling.")
                 return None
 
-            print(f"  [COARSE-ALIGN] Global Thumbnail LoFTR locked: dx={med_dx:.1f}, dy={med_dy:.1f} ({inl_count}/{len(pts_s)} inliers, conf={mean_conf:.2f})")
+            print(f"  [COARSE-ALIGN] Global Thumbnail LoFTR locked: dx={med_dx:.1f}, dy={med_dy:.1f} ({inl_count}/{len(pts_s)} inliers, conf={mean_conf:.2f}, span={span_ratio*100:.1f}%)")
             print(f"    Linear Drift: dy(row) = {dy_slope:.6f} * row + {dy_int:.2f}")
             print(f"    Linear Drift: dx(row) = {dx_slope:.6f} * row + {dx_int:.2f}")
 
@@ -269,6 +290,8 @@ def estimate_global_thumbnail_drift(
                 "confidence": mean_conf,
                 "inliers_count": inl_count,
                 "total_matches": len(pts_s),
+                "span_ratio": float(span_ratio),
+                "height": int(s.height),
                 "drift_model": {
                     "dy_slope": float(dy_slope),
                     "dy_intercept": float(dy_int),
@@ -323,36 +346,51 @@ def run_coarse_alignment(
 
     # Auto uses the fast global thumbnail first; explicit methods use the
     # strip profiler so the requested solver is actually honored.
-    if coarse_method == "auto":
+    loftr_coarse = None
+    if coarse_method in {"auto", "loftr"}:
         loftr_coarse = estimate_global_thumbnail_drift(source_harmonized_path, ref_cropped_path)
         if loftr_coarse is not None:
-            with open(result_path, "w") as f:
-                json.dump(loftr_coarse, f, indent=2)
-            return loftr_coarse
+            span = loftr_coarse.get("span_ratio", 1.0)
+            inliers_count = loftr_coarse.get("inliers_count", 0)
+            swath_h = loftr_coarse.get("height", 0)
+            dy_slope = loftr_coarse.get("drift_model", {}).get("dy_slope", 0.0)
 
-    # Fallback Solver (Tier 2 & 3): Multi-strip vertical profiling with Decimated FFT Anchor
-    print("  [COARSE-ALIGN] LoFTR thumbnail unavailable or insufficient matches; running multi-strip vertical profiling...")
+            # Authoritative if:
+            # 1. Swath is not excessively tall (<= 8000px), OR
+            # 2. Inliers span at least 20% of swath and have non-zero slope or strong count
+            if swath_h <= 8000 or (span >= 0.20 and (dy_slope != 0.0 or inliers_count >= 15)):
+                with open(result_path, "w") as f:
+                    json.dump(loftr_coarse, f, indent=2)
+                return loftr_coarse
+            else:
+                print(f"  [COARSE-ALIGN] LoFTR thumbnail uncertain on tall swath ({swath_h}px, span={span*100:.1f}%, slope={dy_slope:.4f}). Anchoring multi-strip profiler...")
+
+    # Fallback Solver (Tier 2 & 3): Multi-strip vertical profiling with Decimated FFT / LoFTR Anchor
+    print("  [COARSE-ALIGN] Running multi-strip vertical profiling...")
     
-    # Tier 2: Extract approximate (anchor_dx, anchor_dy) from full-swath decimated FFT
-    # so that multi-strip profiling samples patches with mutual ground overlap even on 2000px offsets.
     anchor_dx, anchor_dy = 0.0, 0.0
-    try:
-        with rasterio.open(source_harmonized_path) as s_th, rasterio.open(ref_cropped_path) as r_th:
-            scale_th = min(1.0, 1024.0 / max(s_th.height, s_th.width, r_th.height, r_th.width))
-            th_h = max(8, int(round(s_th.height * scale_th / 8.0)) * 8)
-            th_w = max(8, int(round(s_th.width * scale_th / 8.0)) * 8)
-            th_s = s_th.read(1, out_shape=(th_h, th_w), resampling=rasterio.enums.Resampling.bilinear)
-            th_r = r_th.read(1, out_shape=(th_h, th_w), resampling=rasterio.enums.Resampling.bilinear)
-            clahe_th = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-            s_u8_th = cv2.normalize(th_s, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-            r_u8_th = cv2.normalize(th_r, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-            shift_th, resp_th = cv2.phaseCorrelate(clahe_th.apply(s_u8_th).astype(np.float32), clahe_th.apply(r_u8_th).astype(np.float32))
-            if resp_th > 0.04:
-                anchor_dx = float(shift_th[0] * (s_th.width / th_w))
-                anchor_dy = float(shift_th[1] * (s_th.height / th_h))
-                print(f"  [COARSE-ALIGN] Decimated FFT Anchor detected: dx={anchor_dx:.1f}, dy={anchor_dy:.1f} (response={resp_th:.3f})")
-    except Exception as e:
-        print(f"  [COARSE-ALIGN] Decimated FFT anchor note: {e}")
+    if loftr_coarse is not None:
+        anchor_dx = float(loftr_coarse.get("dx", 0.0))
+        anchor_dy = float(loftr_coarse.get("dy", 0.0))
+        print(f"  [COARSE-ALIGN] Anchoring multi-strip profiler with LoFTR gross displacement: dx={anchor_dx:.1f}, dy={anchor_dy:.1f}")
+    else:
+        try:
+            with rasterio.open(source_harmonized_path) as s_th, rasterio.open(ref_cropped_path) as r_th:
+                scale_th = min(1.0, 1024.0 / max(s_th.height, s_th.width, r_th.height, r_th.width))
+                th_h = max(8, int(round(s_th.height * scale_th / 8.0)) * 8)
+                th_w = max(8, int(round(s_th.width * scale_th / 8.0)) * 8)
+                th_s = s_th.read(1, out_shape=(th_h, th_w), resampling=rasterio.enums.Resampling.bilinear)
+                th_r = r_th.read(1, out_shape=(th_h, th_w), resampling=rasterio.enums.Resampling.bilinear)
+                clahe_th = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                s_u8_th = cv2.normalize(th_s, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                r_u8_th = cv2.normalize(th_r, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                shift_th, resp_th = cv2.phaseCorrelate(clahe_th.apply(s_u8_th).astype(np.float32), clahe_th.apply(r_u8_th).astype(np.float32))
+                if resp_th > 0.04:
+                    anchor_dx = float(shift_th[0] * (s_th.width / th_w))
+                    anchor_dy = float(shift_th[1] * (s_th.height / th_h))
+                    print(f"  [COARSE-ALIGN] Decimated FFT Anchor detected: dx={anchor_dx:.1f}, dy={anchor_dy:.1f} (response={resp_th:.3f})")
+        except Exception as e:
+            print(f"  [COARSE-ALIGN] Decimated FFT anchor note: {e}")
 
     with rasterio.open(source_harmonized_path) as src, rasterio.open(ref_cropped_path) as ref:
         strip_profiles = []

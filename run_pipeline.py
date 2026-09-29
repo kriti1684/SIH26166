@@ -28,7 +28,7 @@ from src.registration.web_previews import export_raster_preview
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="ChandaShakti: Universal Sub-Pixel Lunar Registration Engine (ISRO SIH 26166 v2.0)",
+        description="ChandraShakti: Universal Sub-Pixel Lunar Registration Engine (ISRO SIH 26166 v2.0)",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--source", "-s", type=Path, required=True,
@@ -84,7 +84,7 @@ if hasattr(sys.stdout, "reconfigure"):
 def print_banner():
     print("""
 +===========================================================================+
-|                                CHANDASHAKTI                               |
+|                               CHANDRASHAKTI                               |
 |         Universal Sub-Pixel Multi-Modal Lunar Registration Engine         |
 |                     ISRO SIH 26166 - Next-Gen Pipeline                    |
 |              Precision Target: < 0.2 px | Memory: Windowed BBox           |

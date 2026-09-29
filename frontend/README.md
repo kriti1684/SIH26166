@@ -1,4 +1,4 @@
-# ChandaShakti frontend
+# ChandraShakti frontend
 
 This is the local React, TypeScript, and Vite workspace for the registration API.
 It uploads a source product, a reference product, and optional label/payload
@@ -14,7 +14,7 @@ API terminal.
 Run the API from the repository root:
 
 ```powershell
-uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+uvicorn backend.main:app --reload --host 127.0.0.1 --port 8080
 ```
 
 The API starts each registration pipeline in-process after creating the job.

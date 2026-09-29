@@ -538,7 +538,7 @@ def run_verification(
         "rmse_tps_cv_px": res_stats.get("rmse_tps_cv_px"),
         "effective_rmse_px": round(effective_rmse, 4),
         "rmse_subpixel_target_met": bool(metrics_are_measured and effective_rmse < target_rmse_threshold),
-        "subpixel_precision_tier": ("< 0.2 px" if effective_rmse < 0.2 else ("< 0.5 px" if effective_rmse < 0.5 else "< 1.0 px")) if metrics_are_measured else "not assessed",
+        "subpixel_precision_tier": ("< 0.2 px" if effective_rmse < 0.2 else ("< 0.5 px" if effective_rmse < 0.5 else ("< 1.0 px" if effective_rmse < 1.0 else ">= 1.0 px (Out of bounds)"))) if metrics_are_measured else "not assessed",
         "mean_error_px": res_stats["mean_err_px"],
         "max_error_px": res_stats["max_err_px"],
         "median_dx_px": res_stats["median_dx_px"],

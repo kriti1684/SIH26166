@@ -2,10 +2,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Standalone SVG renderer for the checked-out ChandaShakti workflow.
+// Standalone SVG renderer for the checked-out ChandraShakti workflow.
 // Run from any directory with: node scripts/generate_workflow_diagram.mjs
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const output = path.join(root, 'chandashakti-workflow.svg')
+const output = path.join(root, 'chandrashakti-workflow.svg')
 const width = 2600
 const height = 3120
 const shapes = []
@@ -67,7 +67,7 @@ function outputLine(y, line, color = colors.muted) {
 }
 
 shapes.push(`<rect width="${width}" height="${height}" fill="${colors.bg}"/>`)
-text(110, 77, ['CHANDASHAKTI — COMPLETE WORKFLOW'], { size: 48, color: colors.text, weight: 800 })
+text(110, 77, ['CHANDRASHAKTI — COMPLETE WORKFLOW'], { size: 48, color: colors.text, weight: 800 })
 text(110, 122, ['Lunar image co-registration: browser, API, storage, five processing stages, and results'], { size: 25, color: colors.muted })
 
 card(110, 175, 470, 175, '1  User input', ['Source + reference image', 'Sensors and run defaults', 'Optional label/payload files'], colors.cyan)
@@ -142,6 +142,6 @@ text(145, 2940, ['The browser stores the active job ID in localStorage. Pipeline
 text(145, 2975, ['SUCCESS means the run finished; the verification verdict can still be UNCERTAIN or REJECTED.'], { size: 23, color: colors.text })
 text(145, 3010, ['Current tile matcher uses LoFTR for loftr/ensemble; the API accepts crater but that tile mode is unsupported.'], { size: 23, color: colors.text })
 
-const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="ChandaShakti end-to-end architecture and pipeline diagram">\n<defs><marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 1 1 L 11 6 L 1 11 z" fill="${colors.line}"/></marker></defs>\n${shapes.join('\n')}\n</svg>\n`
+const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="ChandraShakti end-to-end architecture and pipeline diagram">\n<defs><marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M 1 1 L 11 6 L 1 11 z" fill="${colors.line}"/></marker></defs>\n${shapes.join('\n')}\n</svg>\n`
 fs.writeFileSync(output, svg, 'utf8')
 console.log(output)

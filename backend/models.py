@@ -18,6 +18,7 @@ class RegistrationJob(Base):
     __tablename__ = "registration_jobs"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_name = Column(String(256), nullable=True)
 
     sensor_src   = Column(String(16), nullable=False)
     sensor_ref   = Column(String(16), nullable=False)

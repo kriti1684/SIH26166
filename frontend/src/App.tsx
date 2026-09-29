@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { apiUrl, createJob, fetchArtifacts, fetchHealth, fetchJob, fetchJobs } from './api'
+import { apiUrl, createJob, fetchArtifacts, fetchHealth, fetchJob } from './api'
 import { AppSidebar, type ActiveTab } from './components/AppSidebar'
 import {
-  ArtifactRow, formatBytes, formatMetric, formatTime, ImageLightbox, Mark, MetricCard,
-  ProductDrop, StageDetails,
+  ArtifactRow, formatBytes, formatMetric, formatPreviewTitle, formatTime, ImageLightbox, Mark, MetricCard,
+  ProductDrop, QuickBatchUploader, SpaceWaitingCard, StageDetails,
 } from './components'
+import { NewProjectModal, ProjectsModal } from './components/ProjectModals'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -113,7 +114,26 @@ function App() {
   const [submitting, setSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState<ActiveTab>('input')
   const [lightboxState, setLightboxState] = useState<{ list: ArtifactInfo[]; index: number } | null>(null)
+  const [isNewProjectOpen, setIsNewProjectOpen] = useState(false)
+  const [isProjectsOpen, setIsProjectsOpen] = useState(false)
+  const [batchFeedback, setBatchFeedback] = useState<string | null>(null)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('cs_theme')
+    return (saved as 'dark' | 'light') || 'dark'
+  })
   const pollingRef = useRef(false)
+
+  useEffect(() => {
+    const root = document.documentElement
+    if (theme === 'dark') {
+      root.classList.add('dark')
+      root.classList.remove('light')
+    } else {
+      root.classList.add('light')
+      root.classList.remove('dark')
+    }
+    localStorage.setItem('cs_theme', theme)
+  }, [theme])
 
   const activeId = job?.id
   const busy = job?.status === 'PENDING' || job?.status === 'PROCESSING'
@@ -143,41 +163,34 @@ function App() {
 
   useEffect(() => {
     let mounted = true
-    const storedId = window.localStorage.getItem('chandashakti.activeJob')
-    void Promise.allSettled([fetchHealth(), fetchJobs()]).then(async ([healthResult, jobsResult]) => {
-      if (!mounted) return
-      if (healthResult.status === 'fulfilled') setHealth(healthResult.value)
-      else setHealth({ status: 'offline' })
-      if (jobsResult.status === 'fulfilled') {
-        const resumeId = storedId || jobsResult.value.find((item) => item.status === 'PROCESSING' || item.status === 'PENDING')?.id
-        if (resumeId) {
-          try {
-            const restored = await fetchJob(resumeId)
-            if (mounted) {
-              setJob(restored)
-              void refreshArtifacts(resumeId)
-              if (restored.status === 'SUCCESS') setActiveTab('output')
-            }
-          } catch {
-            window.localStorage.removeItem('chandashakti.activeJob')
-          }
+    window.localStorage.removeItem('chandrashakti.activeJob')
+    const storedId = window.sessionStorage.getItem('chandrashakti.activeJob')
+    void fetchHealth().then((h) => { if (mounted) setHealth(h) }).catch(() => { if (mounted) setHealth({ status: 'offline' }) })
+    if (storedId) {
+      void fetchJob(storedId).then((restored) => {
+        if (mounted) {
+          setJob(restored)
+          void refreshArtifacts(storedId)
+          if (restored.status === 'SUCCESS') setActiveTab('output')
         }
-      }
-    })
-    const healthInterval = window.setInterval(() => {
-      void fetchHealth().then((value) => { if (mounted) setHealth(value) }).catch(() => {
-        if (mounted) setHealth({ status: 'offline' })
+      }).catch(() => {
+        window.sessionStorage.removeItem('chandrashakti.activeJob')
       })
+    }
+    const healthTimer = window.setInterval(() => {
+      void fetchHealth().then((h) => { if (mounted) setHealth(h) }).catch(() => { if (mounted) setHealth({ status: 'offline' }) })
     }, 12000)
-    return () => { mounted = false; window.clearInterval(healthInterval) }
+    return () => { mounted = false; window.clearInterval(healthTimer) }
   }, [refreshArtifacts])
 
   useEffect(() => {
     if (!activeId) {
       setArtifacts([])
+      window.sessionStorage.removeItem('chandrashakti.activeJob')
+      window.localStorage.removeItem('chandrashakti.activeJob')
       return
     }
-    window.localStorage.setItem('chandashakti.activeJob', activeId)
+    window.sessionStorage.setItem('chandrashakti.activeJob', activeId)
     void refreshArtifacts(activeId)
   }, [activeId, refreshArtifacts])
 
@@ -224,7 +237,7 @@ function App() {
       const created = await createJob(config, setUploadProgress)
       setJob(created)
       setArtifacts([])
-      window.localStorage.setItem('chandashakti.activeJob', created.id)
+      window.sessionStorage.setItem('chandrashakti.activeJob', created.id)
       setActiveTab('stage_1')
     } catch (error) {
       setSubmitError((error as Error).message)
@@ -233,12 +246,53 @@ function App() {
     }
   }
 
-  function handleResetRun() {
+  function handleBatchUploaded(data: {
+    sourceFile?: File
+    sourceSidecars: File[]
+    referenceFile?: File
+    referenceSidecars: File[]
+    detectedSensors?: { src?: string; ref?: string }
+    message: string
+  }) {
+    if (data.sourceFile) updateConfig('source', data.sourceFile)
+    if (data.sourceSidecars.length) updateConfig('sourceSidecars', data.sourceSidecars)
+    if (data.referenceFile) updateConfig('reference', data.referenceFile)
+    if (data.referenceSidecars.length) updateConfig('referenceSidecars', data.referenceSidecars)
+    if (data.detectedSensors?.src) updateConfig('sensorSrc', data.detectedSensors.src)
+    if (data.detectedSensors?.ref) updateConfig('sensorRef', data.detectedSensors.ref)
+
+    setBatchFeedback(data.message)
+    setTimeout(() => setBatchFeedback(null), 7000)
+  }
+
+  function handleNewProjectConfirm(projectName: string) {
     setJob(null)
     setArtifacts([])
-    setConfig(initialConfig)
-    window.localStorage.removeItem('chandashakti.activeJob')
+    setConfig({ ...initialConfig, projectName: projectName || undefined })
+    window.sessionStorage.removeItem('chandrashakti.activeJob')
+    window.localStorage.removeItem('chandrashakti.activeJob')
     setActiveTab('input')
+  }
+
+  async function handleSelectProject(selectedJob: RegistrationJob) {
+    try {
+      const fullJob = await fetchJob(selectedJob.id)
+      setJob(fullJob)
+      window.sessionStorage.setItem('chandrashakti.activeJob', fullJob.id)
+      void refreshArtifacts(fullJob.id)
+      if (fullJob.status === 'SUCCESS') {
+        setActiveTab('output')
+      } else if (fullJob.status === 'PROCESSING' || fullJob.status === 'PENDING') {
+        setActiveTab('stage_1')
+      } else {
+        setActiveTab('output')
+      }
+    } catch {
+      setJob(selectedJob)
+      window.sessionStorage.setItem('chandrashakti.activeJob', selectedJob.id)
+      void refreshArtifacts(selectedJob.id)
+      setActiveTab(selectedJob.status === 'SUCCESS' ? 'output' : 'stage_1')
+    }
   }
 
   const stageProgress = job?.progress_pct ?? 0
@@ -254,7 +308,6 @@ function App() {
     { label: 'Inlier ratio', value: typeof metrics.inlier_ratio === 'number' ? `${(metrics.inlier_ratio * 100).toFixed(1)}%` : '—' },
     { label: 'Spatial coverage', value: formatMetric(metrics.convex_hull_coverage_pct), unit: '%' },
     { label: 'Spatial entropy', value: formatMetric(metrics.spatial_entropy_h) },
-    { label: 'Scientific confidence', value: typeof metrics.composite_scientific_confidence === 'number' ? `${(metrics.composite_scientific_confidence * 100).toFixed(1)}%` : '—' },
   ] : []
 
   function getStageState(stageId: string): 'waiting' | 'running' | 'complete' | 'failed' {
@@ -280,33 +333,67 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#top" onClick={(e) => { e.preventDefault(); setActiveTab('input') }}>
-          <span className="brand-mark"><Mark name="moon" size={20} /></span>
-          <div className="brand-copy">
-            <strong>CHANDASHAKTI</strong>
-            <small>LUNAR SUB-PIXEL CO-REGISTRATION</small>
-          </div>
-        </a>
+        <div className="topbar-left">
+          <a className="brand" href="#top" onClick={(e) => { e.preventDefault(); setActiveTab('input') }}>
+            <span className="brand-mark">
+              <img src="/logo.png" alt="ChandraShakti Emblem" className="size-full object-contain p-0.5 rounded-lg" />
+            </span>
+            <div className="brand-copy">
+              <strong>CHANDRASHAKTI</strong>
+              <small>LUNAR SUB-PIXEL CO-REGISTRATION</small>
+            </div>
+          </a>
+        </div>
 
         <div className="topbar-center">
-          {job && (
+          {job ? (
             <Button type="button" variant="outline" size="sm" className="current-run-pill bg-primary/5" onClick={() => setActiveTab(job.status === 'SUCCESS' ? 'output' : 'stage_1')}>
               <span className={`run-status-dot ${job.status.toLowerCase()}`} />
-              <span className="run-names">{job.source_filename} → {job.reference_filename}</span>
+              <span className="run-names">{job.project_name || `${job.source_filename} → ${job.reference_filename}`}</span>
               <span className="run-pct">{stageProgress}%</span>
             </Button>
-          )}
+          ) : config.projectName ? (
+            <div className="current-project-pill">
+              <Mark name="folderPlus" size={13} />
+              <span className="truncate max-w-[200px]">Draft: {config.projectName}</span>
+            </div>
+          ) : null}
         </div>
 
         <div className="topbar-right">
-          <div className={`api-indicator ${health?.status === 'online' ? 'online' : ''}`} title={`Backend ${health?.status ?? 'offline'}`}>
-            <span className="api-dot" />{health?.status === 'online' ? 'Backend Ready' : 'Backend Offline'}
-          </div>
-          {job && (
-            <Button type="button" variant="outline" size="sm" className="new-job-btn" onClick={handleResetRun} title="Reset and configure a new pair">
-              <Mark name="plus" size={13} /> New Run
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="project-action-btn"
+            onClick={() => setIsNewProjectOpen(true)}
+            title="Start a new registration project"
+          >
+            <Mark name="folderPlus" size={14} />
+            <span>New Project</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="project-action-btn"
+            onClick={() => setIsProjectsOpen(true)}
+            title="Open saved projects and history"
+          >
+            <Mark name="folderOpen" size={14} />
+            <span>Projects</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="project-action-btn size-8 p-0 justify-center"
+            onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+            title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            aria-label="Toggle Dark / Light Theme"
+          >
+            {theme === 'dark' ? <Mark name="sun" size={14} /> : <Mark name="moon" size={14} />}
+          </Button>
         </div>
       </header>
 
@@ -337,7 +424,7 @@ function App() {
                 <Card className="active-run-alert">
                   <Mark name="activity" size={16} />
                   <div className="active-run-alert-copy">
-                    <strong>Active Run: {job.source_filename} → {job.reference_filename}</strong>
+                    <strong>Active Run: {job.project_name || `${job.source_filename} → ${job.reference_filename}`}</strong>
                     <span>Status: {job.current_stage || job.status} ({stageProgress}%)</span>
                   </div>
                   <Button type="button" size="sm" onClick={() => setActiveTab(job.status === 'SUCCESS' ? 'output' : 'stage_1')}>
@@ -347,6 +434,43 @@ function App() {
               )}
 
               <form className="products-form" onSubmit={handleSubmit}>
+                <div className="project-banner-card">
+                  <div className="project-banner-header">
+                    <span className="project-banner-label">
+                      <Mark name="folderPlus" size={14} />
+                      <span>Project Name</span>
+                    </span>
+                    <span className="project-banner-hint">Optional · Used for history identification</span>
+                  </div>
+                  <input
+                    type="text"
+                    className="project-name-input"
+                    value={config.projectName || ''}
+                    onChange={(e) => updateConfig('projectName', e.target.value)}
+                    placeholder="e.g. Shackleton Rim High-Res Alignment Run 01"
+                    maxLength={128}
+                  />
+                </div>
+
+                {batchFeedback && (
+                  <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Mark name="check" size={16} />
+                      <span className="font-medium truncate">{batchFeedback}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBatchFeedback(null)}
+                      className="text-emerald-400 hover:text-emerald-300 shrink-0 cursor-pointer p-0.5"
+                      aria-label="Dismiss message"
+                    >
+                      <Mark name="x" size={14} />
+                    </button>
+                  </div>
+                )}
+
+                <QuickBatchUploader onBatchUploaded={handleBatchUploaded} />
+
                 <div className="products-grid">
                   <ProductDrop
                     title="Source product"
@@ -446,17 +570,18 @@ function App() {
                         <span className={`log-bullet state-${state}`} />
                         <strong>{state === 'complete' ? 'Stage Execution Succeeded' : state === 'failed' ? 'Stage Execution Failed' : 'Active Stage Process'}</strong>
                       </div>
-                      <time className="log-time">{formatTime(event.created_at)}</time>
                     </div>
                     <p className="log-msg">{event.message}</p>
                     {event.details && <StageDetails details={event.details} />}
                   </Card>
                 ) : (
-                  <Card className="stage-waiting-card">
-                    <div className="waiting-spinner" />
-                    <strong>Stage Not Started Yet</strong>
-                    <p>This stage will automatically execute once previous stages complete.</p>
-                  </Card>
+                  <SpaceWaitingCard
+                    stage={currentStage}
+                    jobActive={busy}
+                    prevStageName={prevStage?.shortName}
+                    stageIndex={stageIndex}
+                    onGoToInput={() => setActiveTab('input')}
+                  />
                 )}
 
                 {stagePreviews.length > 0 && (
@@ -474,21 +599,13 @@ function App() {
                           onClick={() => setLightboxState({ list: stagePreviews, index: idx })}
                         >
                           <div className="preview-card-img-wrap" title="Click to view full screen in this tab">
-                            <img src={apiUrl(art.preview_url!)} alt={art.file_name} loading="lazy" />
+                            <img src={apiUrl(art.preview_url!)} alt={formatPreviewTitle(art.file_name)} loading="lazy" />
                             <div className="preview-hover-zoom">
                               <Mark name="spark" size={14} /> Fullscreen
                             </div>
                           </div>
                           <div className="preview-card-caption">
-                            <span title={art.file_name}>{art.file_name}</span>
-                            <a
-                              href={apiUrl(art.download_url)}
-                              download
-                              title="Download full preview"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Mark name="download" size={14} />
-                            </a>
+                            <span title={art.file_name}>{formatPreviewTitle(art.file_name)}</span>
                           </div>
                         </Card>
                       ))}
@@ -559,11 +676,33 @@ function App() {
                     <div className="hero-top">
                       <div>
                         <span className="eyebrow"><span className="eyebrow-line" /> FINAL CO-REGISTRATION OUTPUT</span>
-                        <h2>{job.source_filename} <span className="arrow-sep">→</span> {job.reference_filename}</h2>
+                        <h2>{job.project_name ? `${job.project_name} (${job.source_filename} → ${job.reference_filename})` : `${job.source_filename} → ${job.reference_filename}`}</h2>
                         <div className="hero-meta">
                           <span><b>{job.sensor_src}</b> Source</span> ·
                           <span><b>{job.sensor_ref}</b> Reference</span> ·
                           <span><Mark name="clock" size={13} /> {job.wall_time_seconds ? `${job.wall_time_seconds.toFixed(1)} seconds` : formatTime(job.completed_at || job.created_at)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/40 text-xs flex-wrap">
+                          <span className="font-mono text-[11px] text-muted-foreground bg-muted/80 px-2 py-0.5 rounded border border-border/60 select-all">
+                            Project ID: <b className="text-foreground">{job.id}</b>
+                          </span>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline px-1.5 py-0.5 cursor-pointer"
+                            onClick={() => void navigator.clipboard.writeText(job.id)}
+                            title="Copy Project ID UUID"
+                          >
+                            <Mark name="check" size={12} />
+                            <span>Copy ID</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 cursor-pointer"
+                            onClick={() => void navigator.clipboard.writeText(`C:\\Padhai\\E\\SIH1\\data\\storage\\outputs\\${job.id}`)}
+                            title="Copy Windows Folder Path to this project's files"
+                          >
+                            <span>Copy Folder Path</span>
+                          </button>
                         </div>
                       </div>
                       <div className="hero-verdict-box">
@@ -629,21 +768,13 @@ function App() {
                               onClick={() => setLightboxState({ list: outputPreviews, index: idx })}
                             >
                               <div className="preview-card-img-wrap" title="Click to view full screen in this tab">
-                                <img src={apiUrl(art.preview_url!)} alt={art.file_name} loading="lazy" />
+                                <img src={apiUrl(art.preview_url!)} alt={formatPreviewTitle(art.file_name)} loading="lazy" />
                                 <div className="preview-hover-zoom">
                                   <Mark name="spark" size={14} /> Fullscreen
                                 </div>
                               </div>
                               <div className="result-preview-caption">
-                                <strong title={art.file_name}>{art.file_name}</strong>
-                                <a
-                                  href={apiUrl(art.download_url)}
-                                  download
-                                  title="Download this raster preview"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <Mark name="download" size={15} />
-                                </a>
+                                <strong title={art.file_name}>{formatPreviewTitle(art.file_name)}</strong>
                               </div>
                             </Card>
                           ))}
@@ -683,6 +814,20 @@ function App() {
           onNavigate={(newIndex) => setLightboxState({ list: lightboxState.list, index: newIndex })}
         />
       )}
+
+      <NewProjectModal
+        isOpen={isNewProjectOpen}
+        onClose={() => setIsNewProjectOpen(false)}
+        onConfirm={handleNewProjectConfirm}
+        currentJob={job}
+      />
+
+      <ProjectsModal
+        isOpen={isProjectsOpen}
+        onClose={() => setIsProjectsOpen(false)}
+        onSelectProject={handleSelectProject}
+        currentJobId={job?.id}
+      />
     </div>
   )
 }

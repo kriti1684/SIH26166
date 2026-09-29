@@ -28,6 +28,7 @@ def init_db():
     required_columns = {
         "run_config_json": "JSON",
         "stage_events_json": "JSON",
+        "project_name": "VARCHAR(256)",
     }
     columns = {column["name"] for column in inspect(engine).get_columns("registration_jobs")}
     missing = [(name, sql_type) for name, sql_type in required_columns.items() if name not in columns]
@@ -35,6 +36,22 @@ def init_db():
         with engine.begin() as connection:
             for name, sql_type in missing:
                 connection.execute(text(f"ALTER TABLE registration_jobs ADD COLUMN {name} {sql_type}"))
+
+    reconcile_stale_jobs()
+
+
+def reconcile_stale_jobs():
+    from backend.models import RegistrationJob, JobStatus
+    with SessionLocal() as db:
+        stale = db.query(RegistrationJob).filter(RegistrationJob.status.in_([JobStatus.PENDING, JobStatus.PROCESSING])).all()
+        for j in stale:
+            j.status = JobStatus.FAILED
+            j.current_stage = "FAILED"
+            j.error_message = "Server process was restarted while registration was in progress."
+        if stale:
+            db.commit()
+            print(f"[STARTUP] Reconciled {len(stale)} orphaned running/pending job(s) to FAILED.")
+
 
 def get_db():
     db = SessionLocal()

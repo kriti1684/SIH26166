@@ -37,8 +37,8 @@ export async function fetchHealth(): Promise<HealthStatus> {
   return readJson<HealthStatus>(response)
 }
 
-export async function fetchJobs(): Promise<RegistrationJob[]> {
-  const response = await fetch(`${API_BASE}/jobs?limit=8`, { cache: 'no-store' })
+export async function fetchJobs(limit = 50): Promise<RegistrationJob[]> {
+  const response = await fetch(`${API_BASE}/jobs?limit=${limit}`, { cache: 'no-store' })
   const payload = await readJson<{ jobs: RegistrationJob[] }>(response)
   return payload.jobs
 }
@@ -69,6 +69,9 @@ export function createJob(
   const body = new FormData()
   if (!config.source || !config.reference) return Promise.reject(new Error('Choose both a source and a reference product.'))
 
+  if (config.projectName?.trim()) {
+    body.append('project_name', config.projectName.trim())
+  }
   body.append('source_file', config.source)
   body.append('reference_file', config.reference)
   config.sourceSidecars.forEach((file) => body.append('source_sidecars', file))
