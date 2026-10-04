@@ -10,7 +10,6 @@
 [![PyTorch CUDA](https://img.shields.io/badge/PyTorch-CUDA%20Accelerated-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Sub-Pixel Accuracy](https://img.shields.io/badge/Sub--Pixel%20Accuracy-%3C%200.25%20px-00C853?style=for-the-badge)](#-comprehensive-scientific-benchmarks)
 [![100% ISIS-Free](https://img.shields.io/badge/Architecture-100%25%20ISIS--Free-blue?style=for-the-badge)](#-100-isis-free-pure-python-architecture)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
 > 📖 **Official Technical Documentation Suite**:  
 > [**ISRO Problem Statement**](docs/PROBLEM_STATEMENT.md) • [**Architecture & Mathematics**](docs/ARCHITECTURE.md) • [**CLI Quickstart Guide**](docs/CLI_USAGE.md) • [**REST API & Webhook Telemetry**](docs/API_REFERENCE.md) • [**5-Pillar Verification & Benchmarks**](docs/VERIFICATION_AND_BENCHMARKS.md)
@@ -515,7 +514,7 @@ The deployment potential of ChandraShakti is evaluated across three core enginee
 | **Operational** | Ingest Compatibility | Requires format pre-conversion | Direct PDS4, PDS3, SPICE, COG Ingest | **FEASIBLE (High)** |
 | **Operational** | Operator Training Time | Weeks of photogrammetry training | Fully autonomous; zero-click execution | **FEASIBLE (High)** |
 | **Economic** | Cost per Swath Pair | $300 – $600 (Manual labor) | < $0.05 (Cloud compute) | **VIABLE (High ROI)** |
-| **Economic** | Software Licensing Cost | $5,000 – $15,000 / seat | $0 (Open Source MIT License) | **VIABLE (High ROI)** |
+| **Economic** | Software Licensing Cost | $5,000 – $15,000 / seat | $0 (In-House Open Architecture) | **VIABLE (High ROI)** |
 | **Economic** | Hardware Cost | Dedicated HPC Server ($10,000+) | Standard 6GB GPU ($800) or $0.50/hr Cloud | **VIABLE (High ROI)** |
 
 ---
@@ -690,7 +689,6 @@ ChandraShakti/
 │
 ├── .gitattributes                      # Line ending & binary format normalization
 ├── .gitignore                          # Clean repository ignoring large rasters & caches
-├── LICENSE                             # MIT Open Source License
 ├── main.py                             # Unified CLI entrypoint
 ├── README.md                           # Master project documentation
 ├── requirements.txt                    # Python dependency manifest
@@ -738,8 +736,7 @@ Interactive Swagger API documentation is available at `http://localhost:8000/doc
 
 ---
 
-## 📜 13. License & Acknowledgements
-- **License:** MIT License. Free for research, academic, and operational space applications.
-- **ISRO / SAC Team:** Developed for the **Smart India Hackathon (SIH 2024)** addressing Problem Statement **SIH26166**.
+## 📜 13. Acknowledgements & Terms
+- **SIH 2024 Project:** Developed for the **Smart India Hackathon** addressing Problem Statement **SIH26166** (Team ChandraShakti).
 - **Data Credits:** Chandrayaan-2 datasets courtesy of **ISRO ISSDC / Pradan**; LRO NAC/WAC datasets courtesy of **NASA / Arizona State University (ASU)**.
 
