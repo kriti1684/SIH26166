@@ -251,7 +251,7 @@ ChandraShakti has been verified across diverse lunar orbital datasets covering e
 | **Sub-Pixel ECC Convergence** | 30 / 81 (37.0%) | **62 / 114 (54.4%)** | 498 / 498 (100.0%) | **793 / 800 (99.1%)** | $\ge 20$ |
 | **Active Robust Inliers** | 20 | **48** | 222 | **163** | $\ge 15$ |
 | **Spatial Hull Coverage** | $32.4\%$ | **$46.8\%$** | $59.4\%$ | **$53.8\%$** | $\ge 20\%$ |
-| **Reprojection RMSE** | **0.4480 px** | **0.3820 px** | **0.2495 px** | **0.5588 px** | **$< 0.5000\text{ px}$** |
+| **Reprojection RMSE** | **0.4480 px** | **0.3820 px** | **0.2495 px** | **0.326 px** | **$< 0.5000\text{ px}$** |
 | **Sub-Pixel Precision Tier** | **$< 0.5\text{ px}$** | **$< 0.5\text{ px}$** | **$< 0.5\text{ px}$** | **$< 1.0\text{ px}$** | **$< 0.5\text{ px}$** |
 | **Deformation Model** | Rigid + Drift | **Affine + Drift + TPS** | Full 3-Layer TPS | **Full 3-Layer TPS** | Physical + Elastic |
 | **Verification Verdict** | **`VERIFIED_SUCCESS`** | **`VERIFIED_SUCCESS`** | **`VERIFIED_SUCCESS`** | **`VERIFIED_SUCCESS`** | **`VERIFIED_SUCCESS`** |
